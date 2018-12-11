@@ -2,18 +2,32 @@ package manifests
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
 	ingressv1alpha1 "github.com/openshift/cluster-ingress-operator/pkg/apis/ingress/v1alpha1"
 	operatorconfig "github.com/openshift/cluster-ingress-operator/pkg/operator/config"
+	"github.com/openshift/cluster-ingress-operator/pkg/util"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func installConfig() *util.InstallConfig {
+	return &util.InstallConfig{
+		ClusterID:  "ingress.test",
+		BaseDomain: "apps.ingress.test",
+		Platform: util.InstallConfigPlatform{
+			AWS: &util.InstallConfigPlatformAWS{
+				Region: "northsouth-not-eastwest",
+			},
+		},
+	}
+}
+
 func TestManifests(t *testing.T) {
 	config := operatorconfig.Config{RouterImage: "quay.io/openshift/router:latest"}
-	f := NewFactory(config)
+	f := NewFactory(config, installConfig())
 
 	ci := &ingressv1alpha1.ClusterIngress{
 		ObjectMeta: metav1.ObjectMeta{
@@ -86,6 +100,19 @@ func TestManifests(t *testing.T) {
 		t.Error("router Deployment has no default node selector")
 	}
 
+	proxyProtocolEnabled := false
+	for _, envVar := range deployment.Spec.Template.Spec.Containers[0].Env {
+		if envVar.Name == "ROUTER_USE_PROXY_PROTOCOL" {
+			if v, err := strconv.ParseBool(envVar.Value); err == nil {
+				proxyProtocolEnabled = v
+			}
+			break
+		}
+	}
+	if proxyProtocolEnabled {
+		t.Errorf("router Deployment unexpected proxy protocol")
+	}
+
 	if deployment.Spec.Template.Spec.Volumes[0].Secret == nil {
 		t.Error("router Deployment has no secret volume")
 	}
@@ -131,6 +158,19 @@ func TestManifests(t *testing.T) {
 		t.Errorf("expected empty readiness probe host, got %q", deployment.Spec.Template.Spec.Containers[0].ReadinessProbe.Handler.HTTPGet.Host)
 	}
 
+	proxyProtocolEnabled = false
+	for _, envVar := range deployment.Spec.Template.Spec.Containers[0].Env {
+		if envVar.Name == "ROUTER_USE_PROXY_PROTOCOL" {
+			if v, err := strconv.ParseBool(envVar.Value); err == nil {
+				proxyProtocolEnabled = v
+			}
+			break
+		}
+	}
+	if !proxyProtocolEnabled {
+		t.Errorf("router Deployment expected proxy protocol")
+	}
+
 	secretName := fmt.Sprintf("secret-%v", time.Now().UnixNano())
 	ci.Spec.DefaultCertificateSecret = &secretName
 	ci.Spec.HighAvailability.Type = ingressv1alpha1.UserDefinedClusterIngressHA
@@ -141,6 +181,7 @@ func TestManifests(t *testing.T) {
 			},
 		},
 	}
+
 	deployment, err = f.RouterDeployment(ci)
 	if err != nil {
 		t.Errorf("invalid router Deployment: %v", err)
@@ -189,7 +230,7 @@ func TestDefaultClusterIngress(t *testing.T) {
 	def, err := NewFactory(operatorconfig.Config{
 		RouterImage:          "test",
 		DefaultIngressDomain: ingressDomain,
-	}).DefaultClusterIngress()
+	}, installConfig()).DefaultClusterIngress()
 	if err != nil {
 		t.Fatal(err)
 	}

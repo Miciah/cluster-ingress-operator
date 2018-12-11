@@ -52,7 +52,6 @@ func init() {
 // specific resoure types in other namespaces should produce operator events.
 type Operator struct {
 	manifestFactory *manifests.Factory
-	installConfig   *util.InstallConfig
 	client          client.Client
 
 	manager manager.Manager
@@ -64,7 +63,7 @@ func New(config operatorconfig.Config, installConfig *util.InstallConfig, dnsMan
 	if err != nil {
 		return nil, fmt.Errorf("could't create kube client: %v", err)
 	}
-	mf := manifests.NewFactory(config)
+	mf := manifests.NewFactory(config, installConfig)
 
 	// Set up an operator manager with a component manager watching for resources
 	// in the router namespace. Any new namespaces or types the operator should
@@ -105,7 +104,6 @@ func New(config operatorconfig.Config, installConfig *util.InstallConfig, dnsMan
 		// TODO: These are only needed for the default cluster ingress stuff, which
 		// should be refactored away.
 		manifestFactory: mf,
-		installConfig:   installConfig,
 		client:          kubeClient,
 	}, nil
 }
