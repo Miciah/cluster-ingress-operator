@@ -220,7 +220,7 @@ func TestManifests(t *testing.T) {
 			defaultSecretName, svc.Annotations[ServingCertSecretAnnotation])
 	}
 
-	if _, err := f.RouterServiceCloud(ci); err != nil {
+	if _, err := f.RouterServiceCloud(ci, proxyProtocolEnabled); err != nil {
 		t.Errorf("invalid RouterServiceCloud: %v", err)
 	}
 }

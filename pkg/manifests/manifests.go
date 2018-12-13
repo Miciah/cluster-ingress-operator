@@ -238,7 +238,7 @@ func (f *Factory) RouterServiceInternal(cr *ingressv1alpha1.ClusterIngress) (*co
 	return s, nil
 }
 
-func (f *Factory) RouterServiceCloud(cr *ingressv1alpha1.ClusterIngress) (*corev1.Service, error) {
+func (f *Factory) RouterServiceCloud(cr *ingressv1alpha1.ClusterIngress, useProxyProtocol bool) (*corev1.Service, error) {
 	s, err := NewService(MustAssetReader(RouterServiceCloud))
 	if err != nil {
 		return nil, err
@@ -258,11 +258,14 @@ func (f *Factory) RouterServiceCloud(cr *ingressv1alpha1.ClusterIngress) (*corev
 	}
 	s.Spec.Selector["router"] = name
 
-	if f.installConfig.Platform.AWS != nil {
+	if useProxyProtocol {
 		if s.Annotations == nil {
 			s.Annotations = map[string]string{}
 		}
-		s.Annotations[AWSLBProxyProtocolAnnotation] = "*"
+		switch {
+		case f.installConfig.Platform.AWS != nil:
+			s.Annotations[AWSLBProxyProtocolAnnotation] = "*"
+		}
 	}
 
 	return s, nil

@@ -3,6 +3,7 @@ package clusteringress
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/sirupsen/logrus"
 
@@ -254,7 +255,16 @@ func (r *reconciler) ensureRouterForIngress(ci *ingressv1alpha1.ClusterIngress) 
 	if ci.Spec.HighAvailability != nil {
 		switch ci.Spec.HighAvailability.Type {
 		case ingressv1alpha1.CloudClusterIngressHA:
-			service, err := r.ManifestFactory.RouterServiceCloud(ci)
+			useProxyProtocol := false
+			for _, envVar := range current.Spec.Template.Spec.Containers[0].Env {
+				if envVar.Name == "ROUTER_USE_PROXY_PROTOCOL" {
+					if v, err := strconv.ParseBool(envVar.Value); err == nil {
+						useProxyProtocol = v
+					}
+					break
+				}
+			}
+			service, err := r.ManifestFactory.RouterServiceCloud(ci, useProxyProtocol)
 			if err != nil {
 				return fmt.Errorf("failed to build router service: %v", err)
 			}
