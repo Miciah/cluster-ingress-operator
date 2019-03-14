@@ -756,3 +756,186 @@ func TestHostNetworkEndpointPublishingStrategy(t *testing.T) {
 		t.Fatalf("failed to delete the ingresscontroller: %v", err)
 	}
 }
+
+// TestVersionReporting updates the release version in the operator deployment
+// and verifies that the operator publishes the new version in the
+// clusteroperator status.
+func TestVersionReporting(t *testing.T) {
+	cl, ns, err := getClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deployment := &appsv1.Deployment{}
+	err = wait.PollImmediate(1*time.Second, 10*time.Second, func() (bool, error) {
+		if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: ns, Name: "ingress-operator"}, deployment); err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("failed to get operator deployment: %v", err)
+	}
+
+	oldVersion := ""
+	newVersion := "0.0.1-test"
+	for i, env := range deployment.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "RELEASE_VERSION" {
+			oldVersion = env.Value
+			deployment.Spec.Template.Spec.Containers[0].Env[i].Value = newVersion
+			break
+		}
+	}
+	if len(oldVersion) == 0 {
+		t.Errorf("env RELEASE_VERSION not found in the operator deployment")
+	}
+
+	err = wait.PollImmediate(1*time.Second, 30*time.Second, func() (bool, error) {
+		if err := cl.Update(context.TODO(), deployment); err != nil {
+			t.Logf("failed to update ingress operator deployment, will retry: %v", err)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("failed to update ingress operator to new version: %v", err)
+	}
+	defer func() {
+		err = wait.PollImmediate(1*time.Second, 10*time.Second, func() (bool, error) {
+			if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: ns, Name: "ingress-operator"}, deployment); err != nil {
+				return false, nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			t.Fatalf("failed to get updated operator deployment: %v", err)
+		}
+		for i, env := range deployment.Spec.Template.Spec.Containers[0].Env {
+			if env.Name == "RELEASE_VERSION" {
+				deployment.Spec.Template.Spec.Containers[0].Env[i].Value = oldVersion
+				break
+			}
+		}
+		err = wait.PollImmediate(1*time.Second, 30*time.Second, func() (bool, error) {
+			if err := cl.Update(context.TODO(), deployment); err != nil {
+				t.Logf("failed to update ingress operator deployment, will retry: %v", err)
+				return false, nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			t.Fatalf("failed to update ingress operator to original version: %v", err)
+		}
+	}()
+
+	err = wait.PollImmediate(1*time.Second, 3*time.Minute, func() (bool, error) {
+		co := &configv1.ClusterOperator{}
+		if err := cl.Get(context.TODO(), types.NamespacedName{Name: "ingress"}, co); err != nil {
+			return false, nil
+		}
+
+		for _, v := range co.Status.Versions {
+			if v.Name == "operator" && v.Version == "0.0.1-test" {
+				return true, nil
+			}
+		}
+
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("failed to observe updated version reported in ingress clusteroperator status: %v", err)
+	}
+}
+
+// TestRouterImageUpgrade updates the router image in the operator deployment
+// and verifies that the operator rolls out the new image.
+func TestRouterImageUpgrade(t *testing.T) {
+	cl, ns, err := getClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deployment := &appsv1.Deployment{}
+	err = wait.PollImmediate(1*time.Second, 10*time.Second, func() (bool, error) {
+		if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: ns, Name: "ingress-operator"}, deployment); err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("failed to get operator deployment: %v", err)
+	}
+
+	oldImage := ""
+	newImage := "openshift/origin-haproxy-router:latest"
+	for i, env := range deployment.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "IMAGE" {
+			oldImage = env.Value
+			deployment.Spec.Template.Spec.Containers[0].Env[i].Value = newImage
+			break
+		}
+	}
+	if len(oldImage) == 0 {
+		t.Errorf("env IMAGE not found in the operator deployment")
+	}
+
+	err = wait.PollImmediate(1*time.Second, 30*time.Second, func() (bool, error) {
+		if err := cl.Update(context.TODO(), deployment); err != nil {
+			t.Logf("failed to update ingress operator deployment, will retry: %v", err)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("failed to update ingress operator to new image: %v", err)
+	}
+	defer func() {
+		err = wait.PollImmediate(1*time.Second, 10*time.Second, func() (bool, error) {
+			if err := cl.Get(context.TODO(), types.NamespacedName{Namespace: ns, Name: "ingress-operator"}, deployment); err != nil {
+				return false, nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			t.Fatalf("failed to get updated operator deployment: %v", err)
+		}
+		for i, env := range deployment.Spec.Template.Spec.Containers[0].Env {
+			if env.Name == "IMAGE" {
+				deployment.Spec.Template.Spec.Containers[0].Env[i].Value = oldImage
+				break
+			}
+		}
+		err = wait.PollImmediate(1*time.Second, 30*time.Second, func() (bool, error) {
+			if err := cl.Update(context.TODO(), deployment); err != nil {
+				t.Logf("failed to update ingress operator deployment, will retry: %v", err)
+				return false, nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			t.Fatalf("failed to update ingress operator to original image: %v", err)
+		}
+	}()
+
+	err = wait.PollImmediate(1*time.Second, 3*time.Minute, func() (bool, error) {
+		podList := &corev1.PodList{}
+		if err := cl.List(context.TODO(), &client.ListOptions{Namespace: "openshift-ingress"}, podList); err != nil {
+			return false, nil
+		}
+
+		for _, pod := range podList.Items {
+			for _, container := range pod.Spec.Containers {
+				if container.Name == "router" {
+					if container.Image == newImage {
+						return true, nil
+					}
+					break
+				}
+			}
+		}
+		return false, nil
+	})
+	if err != nil {
+		t.Fatalf("failed to observe updated router image: %v", err)
+	}
+}
