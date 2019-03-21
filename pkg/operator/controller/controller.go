@@ -71,7 +71,8 @@ func New(mgr manager.Manager, config Config) (controller.Controller, error) {
 type Config struct {
 	KubeConfig             *rest.Config
 	ManifestFactory        *manifests.Factory
-	Namespace              string
+	OperatorNamespace      string
+	OperandNamespace       string
 	DNSManager             dns.Manager
 	RouterImage            string
 	OperatorReleaseVersion string
@@ -290,9 +291,16 @@ func (r *reconciler) ensureRouterNamespace() error {
 		log.Info("created router cluster role", "name", cr.Name)
 	}
 
-	ns, err := r.ManifestFactory.RouterNamespace()
-	if err != nil {
-		return fmt.Errorf("failed to build router namespace: %v", err)
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: r.OperandNamespace,
+			Annotations: map[string]string{
+				"openshift.io/node-selector": "",
+			},
+			Labels: map[string]string{
+				"openshift.io/cluster-monitoring": "true",
+			},
+		},
 	}
 	if err := r.client.Get(context.TODO(), types.NamespacedName{Name: ns.Name}, ns); err != nil {
 		if !errors.IsNotFound(err) {

@@ -7,7 +7,6 @@
 // assets/router/metrics/cluster-role.yaml (259B)
 // assets/router/metrics/role-binding.yaml (297B)
 // assets/router/metrics/role.yaml (291B)
-// assets/router/namespace.yaml (257B)
 // assets/router/service-account.yaml (213B)
 // assets/router/service-cloud.yaml (628B)
 // assets/router/service-internal.yaml (427B)
@@ -219,26 +218,6 @@ func assetsRouterMetricsRoleYaml() (*asset, error) {
 	return a, nil
 }
 
-var _assetsRouterNamespaceYaml = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x64\x8f\x41\x4a\x43\x41\x10\x44\xf7\x73\x8a\xe2\xbb\x8e\xe2\x76\xee\xa0\x1b\xc1\x7d\x67\x7e\x25\x69\x33\xd3\xfd\x99\xee\xc4\xeb\x8b\x46\x30\xe0\xba\x1e\x8f\x57\x67\xb5\xb5\xe2\x55\x06\x63\x93\xc6\x22\x9b\xbe\x73\x86\xba\x55\x5c\x9f\xcb\x60\xca\x2a\x29\xb5\x00\x26\x83\x15\xbe\xd1\xe2\xa4\x87\xdc\xa9\x1d\x27\x23\x0a\x20\x66\x9e\x92\xea\x16\xdf\x20\xfe\xa0\x47\xf5\x27\xf3\x95\xbb\x60\x67\x4b\x9f\x15\xcb\x52\x80\x2e\x7b\xf6\x5f\xf8\x01\xd2\xbb\x7f\xde\x99\x87\x9b\xa6\x4f\xb5\x23\xd2\xd1\xdd\xcf\x38\xf8\xc4\x1b\xe7\x55\x1b\x5f\x6e\x2b\x7c\xff\xc1\x96\x01\x35\xe4\x49\xe3\xa7\xef\x76\xe2\x5f\x42\xeb\x97\x48\xce\x3b\x71\xc5\x92\xf3\xc2\xa5\x7c\x05\x00\x00\xff\xff\xfd\xbd\x46\x74\x01\x01\x00\x00")
-
-func assetsRouterNamespaceYamlBytes() ([]byte, error) {
-	return bindataRead(
-		_assetsRouterNamespaceYaml,
-		"assets/router/namespace.yaml",
-	)
-}
-
-func assetsRouterNamespaceYaml() (*asset, error) {
-	bytes, err := assetsRouterNamespaceYamlBytes()
-	if err != nil {
-		return nil, err
-	}
-
-	info := bindataFileInfo{name: "assets/router/namespace.yaml", size: 257, mode: os.FileMode(420), modTime: time.Unix(1, 0)}
-	a := &asset{bytes: bytes, info: info, digest: [32]uint8{0x93, 0x80, 0x53, 0x86, 0xac, 0xef, 0x4d, 0xd1, 0x80, 0xe0, 0x94, 0x53, 0xb, 0x1e, 0x3f, 0xd3, 0x6c, 0x99, 0x8c, 0x3c, 0x6d, 0x61, 0x35, 0xa0, 0x7a, 0x7c, 0x51, 0x10, 0x53, 0xc7, 0xc5, 0x86}}
-	return a, nil
-}
-
 var _assetsRouterServiceAccountYaml = []byte("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x2c\xce\xb1\x4e\xc4\x30\x10\x84\xe1\xde\x4f\x31\xd2\xd5\x9c\x44\xeb\x8e\x92\x16\x24\x7a\xb3\x99\xbb\x5b\x91\x78\xcd\xee\x3a\x88\xb7\x47\x41\x29\xa7\x98\x5f\xdf\x05\x2f\x22\x36\x7b\xe2\x66\x0e\xb7\x99\xf4\x80\x38\x5b\x72\xc1\xe7\x2f\xf2\x41\xd8\xa0\xb7\x34\xbf\xe2\x35\xf1\xa3\xeb\x0a\xe7\xf7\x54\x27\x64\x9d\x91\x74\x84\xd8\xe0\x52\x2e\x18\xf4\x4d\x23\xd4\x7a\xc0\xb9\xfe\x57\xd2\xf0\x76\x84\x31\xdc\x84\x11\xda\xef\xd7\xf2\xa5\x7d\xa9\x78\xa7\xef\x2a\x3c\x0d\xa5\x0d\xfd\xa0\x1f\xef\x8a\xfd\xb9\x6c\xcc\xb6\xb4\x6c\xb5\x00\xbd\x6d\xac\x27\xf0\x9c\x31\x9a\xb0\x1e\xba\x1e\x0f\xbd\xe5\x93\xf6\xbb\x33\xa2\xfc\x05\x00\x00\xff\xff\x33\xdc\xda\x8c\xd5\x00\x00\x00")
 
 func assetsRouterServiceAccountYamlBytes() ([]byte, error) {
@@ -404,8 +383,6 @@ var _bindata = map[string]func() (*asset, error){
 
 	"assets/router/metrics/role.yaml": assetsRouterMetricsRoleYaml,
 
-	"assets/router/namespace.yaml": assetsRouterNamespaceYaml,
-
 	"assets/router/service-account.yaml": assetsRouterServiceAccountYaml,
 
 	"assets/router/service-cloud.yaml": assetsRouterServiceCloudYaml,
@@ -465,7 +442,6 @@ var _bintree = &bintree{nil, map[string]*bintree{
 				"role-binding.yaml":         {assetsRouterMetricsRoleBindingYaml, map[string]*bintree{}},
 				"role.yaml":                 {assetsRouterMetricsRoleYaml, map[string]*bintree{}},
 			}},
-			"namespace.yaml":        {assetsRouterNamespaceYaml, map[string]*bintree{}},
 			"service-account.yaml":  {assetsRouterServiceAccountYaml, map[string]*bintree{}},
 			"service-cloud.yaml":    {assetsRouterServiceCloudYaml, map[string]*bintree{}},
 			"service-internal.yaml": {assetsRouterServiceInternalYaml, map[string]*bintree{}},

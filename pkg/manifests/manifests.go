@@ -23,7 +23,6 @@ import (
 )
 
 const (
-	RouterNamespace          = "assets/router/namespace.yaml"
 	RouterServiceAccount     = "assets/router/service-account.yaml"
 	RouterClusterRole        = "assets/router/cluster-role.yaml"
 	RouterClusterRoleBinding = "assets/router/cluster-role-binding.yaml"
@@ -77,14 +76,6 @@ func (f *Factory) OperatorRoleBinding() (*rbacv1.RoleBinding, error) {
 		return nil, err
 	}
 	return crb, nil
-}
-
-func (f *Factory) RouterNamespace() (*corev1.Namespace, error) {
-	ns, err := NewNamespace(MustAssetReader(RouterNamespace))
-	if err != nil {
-		return nil, err
-	}
-	return ns, nil
 }
 
 func (f *Factory) RouterServiceAccount() (*corev1.ServiceAccount, error) {

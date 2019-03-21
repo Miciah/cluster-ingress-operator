@@ -35,10 +35,6 @@ func TestManifests(t *testing.T) {
 		},
 	}
 
-	if _, err := f.RouterNamespace(); err != nil {
-		t.Errorf("invalid RouterNamespace: %v", err)
-	}
-
 	if _, err := f.RouterServiceAccount(); err != nil {
 		t.Errorf("invalid RouterServiceAccount: %v", err)
 	}

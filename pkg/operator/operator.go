@@ -87,7 +87,8 @@ func New(config operatorconfig.Config, dnsManager dns.Manager, kubeConfig *rest.
 	// Create and register the operator controller with the operator manager.
 	operatorController, err := operatorcontroller.New(operatorManager, operatorcontroller.Config{
 		KubeConfig:             kubeConfig,
-		Namespace:              config.Namespace,
+		OperatorNamespace:      config.Namespace,
+		OperandNamespace:       "openshift-ingress",
 		ManifestFactory:        mf,
 		DNSManager:             dnsManager,
 		RouterImage:            config.RouterImage,
