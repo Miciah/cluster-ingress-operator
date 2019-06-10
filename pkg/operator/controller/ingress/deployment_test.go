@@ -9,6 +9,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
+	"github.com/openshift/cluster-ingress-operator/pkg/operator/controller"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -59,6 +60,14 @@ func TestDesiredRouterDeployment(t *testing.T) {
 	deployment, err := desiredRouterDeployment(ci, ingressControllerImage, infraConfig)
 	if err != nil {
 		t.Errorf("invalid router Deployment: %v", err)
+	}
+
+	expectedHash := deploymentHash(deployment)
+	actualHash, haveHashLabel := deployment.Spec.Template.Labels[controller.ControllerDeploymentHashLabel]
+	if !haveHashLabel {
+		t.Error("router Deployment is missing hash label")
+	} else if actualHash != expectedHash {
+		t.Errorf("router Deployment has wrong hash; expected: %s, got: %s", expectedHash, actualHash)
 	}
 
 	namespaceSelector := ""
@@ -155,6 +164,13 @@ func TestDesiredRouterDeployment(t *testing.T) {
 	if err != nil {
 		t.Errorf("invalid router Deployment: %v", err)
 	}
+	expectedHash = deploymentHash(deployment)
+	actualHash, haveHashLabel = deployment.Spec.Template.Labels[controller.ControllerDeploymentHashLabel]
+	if !haveHashLabel {
+		t.Error("router Deployment is missing hash label")
+	} else if actualHash != expectedHash {
+		t.Errorf("router Deployment has wrong hash; expected: %s, got: %s", expectedHash, actualHash)
+	}
 	if deployment.Spec.Template.Spec.HostNetwork != false {
 		t.Error("expected host network to be false")
 	}
@@ -209,6 +225,10 @@ func TestDesiredRouterDeployment(t *testing.T) {
 	deployment, err = desiredRouterDeployment(ci, ingressControllerImage, infraConfig)
 	if err != nil {
 		t.Errorf("invalid router Deployment: %v", err)
+	}
+	actualHash, haveHashLabel = deployment.Spec.Template.Labels[controller.ControllerDeploymentHashLabel]
+	if haveHashLabel {
+		t.Errorf("router Deployment has unexpected hash label: %s", actualHash)
 	}
 	if len(deployment.Spec.Template.Spec.NodeSelector) != 1 ||
 		deployment.Spec.Template.Spec.NodeSelector["xyzzy"] != "quux" {
@@ -265,6 +285,13 @@ func TestDeploymentConfigChanged(t *testing.T) {
 			description: "if .uid changes",
 			mutate: func(deployment *appsv1.Deployment) {
 				deployment.UID = "2"
+			},
+			expect: false,
+		},
+		{
+			description: "if the deployment hash changes",
+			mutate: func(deployment *appsv1.Deployment) {
+				deployment.Spec.Template.Labels[controller.ControllerDeploymentHashLabel] = "2"
 			},
 			expect: false,
 		},
@@ -396,11 +423,41 @@ func TestDeploymentConfigChanged(t *testing.T) {
 			expect: true,
 		},
 		{
-			description: "if the deployment template affinity is changed",
+			description: "if the deployment template affinity is deleted",
 			mutate: func(deployment *appsv1.Deployment) {
-				deployment.Spec.Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchExpressions[0].Key = "new-label"
+				deployment.Spec.Template.Spec.Affinity = nil
 			},
 			expect: true,
+		},
+		{
+			description: "if the deployment template anti-affinity is changed",
+			mutate: func(deployment *appsv1.Deployment) {
+				deployment.Spec.Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchExpressions[1].Values = []string{"xyz"}
+			},
+			expect: true,
+		},
+		{
+			description: "if the deployment template affinity label selector expressions change ordering",
+			mutate: func(deployment *appsv1.Deployment) {
+				exprs := deployment.Spec.Template.Spec.Affinity.PodAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm.LabelSelector.MatchExpressions
+				exprs[0], exprs[1] = exprs[1], exprs[0]
+			},
+			expect: false,
+		},
+		{
+			description: "if the deployment template anti-affinity label selector expressions change ordering",
+			mutate: func(deployment *appsv1.Deployment) {
+				exprs := deployment.Spec.Template.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchExpressions
+				exprs[0], exprs[1] = exprs[1], exprs[0]
+			},
+			expect: false,
+		},
+		{
+			description: "if the hash in the deployment template affinity is changed",
+			mutate: func(deployment *appsv1.Deployment) {
+				deployment.Spec.Template.Spec.Affinity.PodAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm.LabelSelector.MatchExpressions[0].Values = []string{"2"}
+			},
+			expect: false,
 		},
 	}
 
@@ -429,6 +486,11 @@ func TestDeploymentConfigChanged(t *testing.T) {
 					},
 				},
 				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: map[string]string{
+							controller.ControllerDeploymentHashLabel: "1",
+						},
+					},
 					Spec: corev1.PodSpec{
 						Volumes: []corev1.Volume{
 							{
@@ -469,6 +531,30 @@ func TestDeploymentConfigChanged(t *testing.T) {
 							},
 						},
 						Affinity: &corev1.Affinity{
+							PodAffinity: &corev1.PodAffinity{
+								PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+									{
+										Weight: int32(100),
+										PodAffinityTerm: corev1.PodAffinityTerm{
+											TopologyKey: "kubernetes.io/hostname",
+											LabelSelector: &metav1.LabelSelector{
+												MatchExpressions: []metav1.LabelSelectorRequirement{
+													{
+														Key:      controller.ControllerDeploymentHashLabel,
+														Operator: metav1.LabelSelectorOpNotIn,
+														Values:   []string{"1"},
+													},
+													{
+														Key:      controller.ControllerDeploymentLabel,
+														Operator: metav1.LabelSelectorOpIn,
+														Values:   []string{"default"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
 							PodAntiAffinity: &corev1.PodAntiAffinity{
 								RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
 									{
@@ -476,9 +562,14 @@ func TestDeploymentConfigChanged(t *testing.T) {
 										LabelSelector: &metav1.LabelSelector{
 											MatchExpressions: []metav1.LabelSelectorRequirement{
 												{
-													Key:      "label",
+													Key:      controller.ControllerDeploymentHashLabel,
 													Operator: metav1.LabelSelectorOpIn,
-													Values:   []string{"value"},
+													Values:   []string{"1"},
+												},
+												{
+													Key:      controller.ControllerDeploymentLabel,
+													Operator: metav1.LabelSelectorOpIn,
+													Values:   []string{"default"},
 												},
 											},
 										},
