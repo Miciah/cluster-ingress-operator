@@ -97,17 +97,12 @@ func desiredRouterDeployment(ci *operatorv1.IngressController, ingressController
 		},
 	}
 
-	// For now, all strategies use 25% max unavailable and 0 surge. This is because
-	// distinct ingress controllers can't currently be colocated. Usually, replicas
-	// will be equal to the node pool size. Under these conditions, surge requires
-	// new nodes to support the rollout. This means a positive surge can cause the
-	// rollout to wedge in the absence of auto-scaling.
 	pointerTo := func(ios intstr.IntOrString) *intstr.IntOrString { return &ios }
 	deployment.Spec.Strategy = appsv1.DeploymentStrategy{
 		Type: appsv1.RollingUpdateDeploymentStrategyType,
 		RollingUpdate: &appsv1.RollingUpdateDeployment{
-			MaxUnavailable: pointerTo(intstr.FromString("25%")),
-			MaxSurge:       pointerTo(intstr.FromInt(0)),
+			MaxUnavailable: pointerTo(intstr.FromInt(0)),
+			MaxSurge:       pointerTo(intstr.FromInt(1)),
 		},
 	}
 
