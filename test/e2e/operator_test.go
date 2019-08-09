@@ -604,15 +604,20 @@ func waitForClusterOperatorConditions(cl client.Client, conditions ...configv1.C
 }
 
 func waitForIngressControllerCondition(cl client.Client, timeout time.Duration, name types.NamespacedName, conditions ...operatorv1.OperatorCondition) error {
-	return wait.PollImmediate(1*time.Second, timeout, func() (bool, error) {
+	var actual, expected map[string]string
+	err := wait.PollImmediate(1*time.Second, timeout, func() (bool, error) {
 		ic := &operatorv1.IngressController{}
 		if err := cl.Get(context.TODO(), name, ic); err != nil {
 			return false, err
 		}
-		expected := operatorConditionMap(conditions...)
-		current := operatorConditionMap(ic.Status.Conditions...)
-		return conditionsMatchExpected(expected, current), nil
+		expected = operatorConditionMap(conditions...)
+		actual = operatorConditionMap(ic.Status.Conditions...)
+		return conditionsMatchExpected(expected, actual), nil
 	})
+	if err != nil {
+		return fmt.Errorf("%v; got: %#v, expected: %#v", err, actual, expected)
+	}
+	return nil
 }
 
 func assertIngressControllerDeleted(t *testing.T, cl client.Client, ing *operatorv1.IngressController) {

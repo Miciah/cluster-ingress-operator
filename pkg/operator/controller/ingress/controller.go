@@ -74,7 +74,7 @@ func enqueueRequestForOwningIngressController(namespace string) handler.EventHan
 		ToRequests: handler.ToRequestsFunc(func(a handler.MapObject) []reconcile.Request {
 			labels := a.Meta.GetLabels()
 			if ingressName, ok := labels[manifests.OwningIngressControllerLabel]; ok {
-				log.Info("queueing ingress", "name", ingressName, "related", a.Meta.GetSelfLink())
+				log.Info("queueing ingress", "name", ingressName, "related", a.Object)
 				return []reconcile.Request{
 					{
 						NamespacedName: types.NamespacedName{
@@ -402,6 +402,7 @@ func (r *reconciler) ensureIngressController(ci *operatorv1.IngressController, d
 		errs = append(errs, fmt.Errorf("failed to list events in namespace %q: %v", "openshift-ingress", err))
 	}
 
+	log.Info("syncing status", "name", ci.Name, "deployment", deployment)
 	if err := r.syncIngressControllerStatus(ci, deployment, lbService, operandEvents.Items, wildcardRecord, dnsConfig); err != nil {
 		errs = append(errs, fmt.Errorf("failed to sync ingresscontroller status: %v", err))
 	}

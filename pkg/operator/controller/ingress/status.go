@@ -30,6 +30,8 @@ func (r *reconciler) syncIngressControllerStatus(ic *operatorv1.IngressControlle
 		return fmt.Errorf("deployment has invalid spec.selector: %v", err)
 	}
 
+	log.Info("synching ingresscontroler status", "name", ic.Name, "old conditions", ic.Status.Conditions)
+
 	updated := ic.DeepCopy()
 	updated.Status.AvailableReplicas = deployment.Status.AvailableReplicas
 	updated.Status.Selector = selector.String()
@@ -39,12 +41,17 @@ func (r *reconciler) syncIngressControllerStatus(ic *operatorv1.IngressControlle
 	updated.Status.Conditions = mergeConditions(updated.Status.Conditions, computeDNSStatus(ic, wildcardRecord, dnsConfig)...)
 	updated.Status.Conditions = mergeConditions(updated.Status.Conditions, computeIngressDegradedCondition(deployment))
 
+	log.Info("synching ingresscontroler status", "name", ic.Name, "old conditions", ic.Status.Conditions)
+	log.Info("synching ingresscontroler status", "name", ic.Name, "new conditions", updated.Status.Conditions)
+
 	if !ingressStatusesEqual(updated.Status, ic.Status) {
 		if err := r.client.Status().Update(context.TODO(), updated); err != nil {
 			return fmt.Errorf("failed to update ingresscontroller status: %v", err)
 		}
+		log.Info("updated ingresscontroler status", "name", ic.Name)
 	}
 
+	log.Info("no update to ingresscontroler status", "name", ic.Name)
 	return nil
 }
 
