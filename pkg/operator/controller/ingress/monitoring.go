@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/davecgh/go-spew/spew"
+
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/cluster-ingress-operator/pkg/manifests"
 	"github.com/openshift/cluster-ingress-operator/pkg/operator/controller"
@@ -21,6 +23,7 @@ import (
 // ingresscontroller.  Returns a Boolean indicating whether the servicemonitor
 // exists, the servicemonitor if it does exist, and an error value.
 func (r *reconciler) ensureServiceMonitor(ic *operatorv1.IngressController, svc *corev1.Service, deploymentRef metav1.OwnerReference) (bool, *unstructured.Unstructured, error) {
+	log.Info("entered ensureServiceMonitor")
 	desired := desiredServiceMonitor(ic, svc, deploymentRef)
 
 	haveSM, current, err := r.currentServiceMonitor(ic)
@@ -30,12 +33,14 @@ func (r *reconciler) ensureServiceMonitor(ic *operatorv1.IngressController, svc 
 
 	switch {
 	case !haveSM:
+		log.Info("don't have servicemonitor")
 		if created, err := r.createServiceMonitor(desired); err != nil {
 			return false, nil, fmt.Errorf("failed to create servicemonitor %s/%s: %v", desired.GetNamespace(), desired.GetName(), err)
 		} else if created {
 			log.Info("created servicemonitor", "namespace", desired.GetNamespace(), "name", desired.GetName())
 		}
 	case haveSM:
+		log.Info("already have servicemonitor")
 		if updated, err := r.updateServiceMonitor(current, desired); err != nil {
 			return true, nil, fmt.Errorf("failed to update servicemonitor %s/%s: %v", desired.GetNamespace(), desired.GetName(), err)
 		} else if updated {
@@ -43,6 +48,7 @@ func (r *reconciler) ensureServiceMonitor(ic *operatorv1.IngressController, svc 
 		}
 	}
 
+	log.Info("leaving ensureServiceMonitor")
 	return r.currentServiceMonitor(ic)
 }
 
@@ -132,25 +138,32 @@ func (r *reconciler) createServiceMonitor(sm *unstructured.Unstructured) (bool, 
 // updateServiceMonitor updates a servicemonitor.  Returns a Boolean indicating
 // whether the servicemonitor was updated, and an error value.
 func (r *reconciler) updateServiceMonitor(current, desired *unstructured.Unstructured) (bool, error) {
+	log.Info("entered updateServiceMonitor")
 	changed, updated := serviceMonitorChanged(current, desired)
 	if !changed {
+		log.Info("leaving updateServiceMonitor (no change)")
 		return false, nil
 	}
 
 	if err := r.client.Update(context.TODO(), updated); err != nil {
 		return false, err
 	}
+	log.Info("leaving updateServiceMonitor (changed)")
 	return true, nil
 }
 
 // serviceMonitorChanged checks if current servicemonitor spec matches the
 // expected spec and if not returns an updated one.
 func serviceMonitorChanged(current, expected *unstructured.Unstructured) (bool, *unstructured.Unstructured) {
+	log.Info("entered serviceMonitorChanged")
 	if reflect.DeepEqual(current.Object["spec"], expected.Object["spec"]) {
+		log.Info("leaving serviceMonitorChanged (no change)", "current spec", current.Object["spec"], "expected spec", expected.Object["spec"])
 		return false, nil
 	}
+	log.Info("serviceMonitorChanged updating", "currentSpec", spew.Sdump(current.Object["spec"]), "expectedSpec", spew.Sdump(expected.Object["spec"]))
 
 	updated := current.DeepCopy()
 	updated.Object["spec"] = expected.Object["spec"]
+	log.Info("leaving serviceMonitorChanged (updated)")
 	return true, updated
 }

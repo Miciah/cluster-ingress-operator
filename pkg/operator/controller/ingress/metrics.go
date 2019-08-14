@@ -17,6 +17,7 @@ import (
 
 // ensureMetricsIntegration ensures that router prometheus metrics is integrated with openshift-monitoring for the given ingresscontroller.
 func (r *reconciler) ensureMetricsIntegration(ci *operatorv1.IngressController, svc *corev1.Service, deploymentRef metav1.OwnerReference) error {
+	log.Info("entered ensureMetricsIntegration")
 	statsSecret := manifests.RouterStatsSecret(ci)
 	if err := r.client.Get(context.TODO(), types.NamespacedName{Namespace: statsSecret.Namespace, Name: statsSecret.Name}, statsSecret); err != nil {
 		if !errors.IsNotFound(err) {
@@ -78,5 +79,6 @@ func (r *reconciler) ensureMetricsIntegration(ci *operatorv1.IngressController, 
 		return fmt.Errorf("failed to ensure servicemonitor for %s: %v", ci.Name, err)
 	}
 
+	log.Info("leaving ensureMetricsIntegration")
 	return nil
 }

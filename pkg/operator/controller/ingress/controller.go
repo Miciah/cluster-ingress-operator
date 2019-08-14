@@ -374,6 +374,7 @@ func (r *reconciler) ensureIngressDeleted(ingress *operatorv1.IngressController)
 
 // ensureIngressController ensures all necessary router resources exist for a given ingresscontroller.
 func (r *reconciler) ensureIngressController(ci *operatorv1.IngressController, dnsConfig *configv1.DNS, infraConfig *configv1.Infrastructure) error {
+	log.Info("entered ensureIngressController")
 	// Before doing anything at all with the controller, ensure it has a finalizer
 	// so we can clean up later.
 	if !slice.ContainsString(ci.Finalizers, manifests.IngressControllerFinalizer) {
@@ -387,16 +388,19 @@ func (r *reconciler) ensureIngressController(ci *operatorv1.IngressController, d
 		}
 		ci = updated
 	}
+	log.Info("ensureIngressController 1")
 
 	if err := r.ensureRouterNamespace(); err != nil {
 		return fmt.Errorf("failed to ensure namespace: %v", err)
 	}
 
+	log.Info("ensureIngressController 2")
 	deployment, err := r.ensureRouterDeployment(ci, infraConfig)
 	if err != nil {
 		return fmt.Errorf("failed to ensure deployment: %v", err)
 	}
 
+	log.Info("ensureIngressController 3")
 	var errs []error
 	trueVar := true
 	deploymentRef := metav1.OwnerReference{
@@ -407,6 +411,7 @@ func (r *reconciler) ensureIngressController(ci *operatorv1.IngressController, d
 		Controller: &trueVar,
 	}
 
+	log.Info("ensureIngressController 4")
 	var lbService *corev1.Service
 	var wildcardRecord *iov1.DNSRecord
 	if lb, err := r.ensureLoadBalancerService(ci, deploymentRef, infraConfig); err != nil {
@@ -420,25 +425,30 @@ func (r *reconciler) ensureIngressController(ci *operatorv1.IngressController, d
 		}
 	}
 
+	log.Info("ensureIngressController 5")
 	if internalSvc, err := r.ensureInternalIngressControllerService(ci, deploymentRef); err != nil {
 		errs = append(errs, fmt.Errorf("failed to create internal router service for ingresscontroller %s: %v", ci.Name, err))
 	} else if err := r.ensureMetricsIntegration(ci, internalSvc, deploymentRef); err != nil {
 		errs = append(errs, fmt.Errorf("failed to integrate metrics with openshift-monitoring for ingresscontroller %s: %v", ci.Name, err))
 	}
 
+	log.Info("ensureIngressController 6")
 	if _, _, err := r.ensureRouterPodDisruptionBudget(ci, deploymentRef); err != nil {
 		errs = append(errs, err)
 	}
 
+	log.Info("ensureIngressController 7")
 	operandEvents := &corev1.EventList{}
 	if err := r.cache.List(context.TODO(), operandEvents, client.InNamespace("openshift-ingress")); err != nil {
 		errs = append(errs, fmt.Errorf("failed to list events in namespace %q: %v", "openshift-ingress", err))
 	}
 
+	log.Info("ensureIngressController 8")
 	if err := r.syncIngressControllerStatus(ci, deployment, lbService, operandEvents.Items, wildcardRecord, dnsConfig); err != nil {
 		errs = append(errs, fmt.Errorf("failed to sync ingresscontroller status: %v", err))
 	}
 
+	log.Info("leaving ensureIngressController")
 	return utilerrors.NewAggregate(errs)
 }
 
