@@ -57,8 +57,9 @@ func New(config operatorconfig.Config, dnsProvider dns.Provider, kubeConfig *res
 	scheme := operatorclient.GetScheme()
 	// Set up an operator manager for the operator namespace.
 	mgr, err := manager.New(kubeConfig, manager.Options{
-		Namespace: config.Namespace,
-		Scheme:    scheme,
+		HealthProbeBindAddress: ":8080",
+		Namespace:              config.Namespace,
+		Scheme:                 scheme,
 		NewCache: cache.MultiNamespacedCacheBuilder([]string{
 			config.Namespace,
 			manifests.DefaultOperandNamespace,

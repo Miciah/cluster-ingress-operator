@@ -48,6 +48,20 @@ spec:
                   fieldPath: metadata.namespace
             - name: IMAGE
               value: openshift/origin-haproxy-router:v4.0
+          ports:
+          - name: healthz
+            containerPort: 8080
+            protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 10
+            httpGet:
+              path: /healthz
+              port: healthz
+          readinessProbe:
+            initialDelaySeconds: 10
+            httpGet:
+              path: /readyz
+              port: healthz
           resources:
             requests:
               cpu: 10m
