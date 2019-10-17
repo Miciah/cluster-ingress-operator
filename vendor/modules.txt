@@ -80,8 +80,8 @@ github.com/gogo/protobuf/sortkeys
 github.com/golang/groupcache/lru
 # github.com/golang/protobuf v1.3.2
 github.com/golang/protobuf/proto
-github.com/golang/protobuf/ptypes/any
 github.com/golang/protobuf/ptypes
+github.com/golang/protobuf/ptypes/any
 github.com/golang/protobuf/ptypes/duration
 github.com/golang/protobuf/ptypes/timestamp
 # github.com/google/go-cmp v0.3.0
@@ -354,13 +354,13 @@ k8s.io/apimachinery/pkg/apis/meta/v1/unstructured
 k8s.io/apimachinery/pkg/util/clock
 k8s.io/apimachinery/pkg/util/intstr
 k8s.io/apimachinery/pkg/api/meta
-k8s.io/apimachinery/pkg/util/runtime
 k8s.io/apimachinery/pkg/fields
 k8s.io/apimachinery/pkg/labels
 k8s.io/apimachinery/pkg/runtime/serializer
 k8s.io/apimachinery/pkg/util/json
 k8s.io/apimachinery/pkg/conversion
 k8s.io/apimachinery/pkg/selection
+k8s.io/apimachinery/pkg/util/runtime
 k8s.io/apimachinery/pkg/watch
 k8s.io/apimachinery/pkg/conversion/queryparams
 k8s.io/apimachinery/pkg/util/naming
@@ -369,7 +369,6 @@ k8s.io/apimachinery/pkg/util/validation/field
 k8s.io/apimachinery/pkg/runtime/serializer/streaming
 k8s.io/apimachinery/pkg/util/net
 k8s.io/apimachinery/pkg/util/strategicpatch
-k8s.io/apimachinery/pkg/version
 k8s.io/apimachinery/pkg/util/validation
 k8s.io/apimachinery/pkg/runtime/serializer/json
 k8s.io/apimachinery/pkg/runtime/serializer/protobuf
@@ -378,6 +377,7 @@ k8s.io/apimachinery/pkg/runtime/serializer/versioning
 k8s.io/apimachinery/pkg/util/cache
 k8s.io/apimachinery/pkg/util/diff
 k8s.io/apimachinery/third_party/forked/golang/reflect
+k8s.io/apimachinery/pkg/version
 k8s.io/apimachinery/pkg/util/uuid
 k8s.io/apimachinery/pkg/util/mergepatch
 k8s.io/apimachinery/third_party/forked/golang/json
@@ -392,8 +392,6 @@ k8s.io/apiserver/pkg/authentication/user
 k8s.io/client-go/rest
 k8s.io/client-go/kubernetes/scheme
 k8s.io/client-go/tools/record
-k8s.io/client-go/discovery
-k8s.io/client-go/restmapper
 k8s.io/client-go/dynamic
 k8s.io/client-go/tools/clientcmd
 k8s.io/client-go/tools/clientcmd/api
@@ -408,6 +406,8 @@ k8s.io/client-go/util/cert
 k8s.io/client-go/util/flowcontrol
 k8s.io/client-go/tools/leaderelection
 k8s.io/client-go/tools/leaderelection/resourcelock
+k8s.io/client-go/discovery
+k8s.io/client-go/restmapper
 k8s.io/client-go/tools/record/util
 k8s.io/client-go/tools/reference
 k8s.io/client-go/discovery/cached
