@@ -21,6 +21,14 @@ rules:
   - "*"
 
 - apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - list
+  - watch
+
+- apiGroups:
   - apps
   resources:
   - deployments

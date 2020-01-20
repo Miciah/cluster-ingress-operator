@@ -7,14 +7,22 @@ metadata:
   namespace: openshift-ingress
   labels:
     app: router
+    ingresscontroller.operator.openshift.io/need-load-balancer: "true"
 spec:
-  type: LoadBalancer
+  type: NodePort
   selector:
     app: router
   # This also has the effect of marking LB pool targets as unhealthy when no
   # router pods are present on a node behind the service.
   externalTrafficPolicy: Local
   ports:
+  # "metrics" must be the first port in the list so that the cloud
+  # provider configures the load balancer to use it for its health
+  # check.
+  - name: metrics
+    protocol: TCP
+    port: 1936
+    targetPort: metrics
   - name: http
     protocol: TCP
     port: 80

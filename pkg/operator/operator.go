@@ -15,6 +15,7 @@ import (
 	certpublishercontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/certificate-publisher"
 	dnscontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/dns"
 	ingresscontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/ingress"
+	loadbalancercontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/load-balancer"
 	statuscontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/status"
 	operatorutil "github.com/openshift/cluster-ingress-operator/pkg/util"
 
@@ -111,6 +112,11 @@ func New(config operatorconfig.Config, dnsProvider dns.Provider, kubeConfig *res
 	// Set up the DNS controller
 	if _, err := dnscontroller.New(mgr, dnsProvider); err != nil {
 		return nil, fmt.Errorf("failed to create dns controller: %v", err)
+	}
+
+	// Set up the load-balancer controller
+	if _, err := loadbalancercontroller.New(mgr, config.Namespace, config.OperatorReleaseVersion); err != nil {
+		return nil, fmt.Errorf("failed to create load-balancer controller: %v", err)
 	}
 
 	return &Operator{
