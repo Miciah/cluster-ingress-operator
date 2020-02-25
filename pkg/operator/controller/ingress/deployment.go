@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/google/go-cmp/cmp"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/cluster-ingress-operator/pkg/manifests"
@@ -73,6 +74,10 @@ func (r *reconciler) ensureRouterDeleted(ci *operatorv1.IngressController) error
 
 // desiredRouterDeployment returns the desired router deployment.
 func desiredRouterDeployment(ci *operatorv1.IngressController, ingressControllerImage string, infraConfig *configv1.Infrastructure, ingressConfig *configv1.Ingress, apiConfig *configv1.APIServer, networkConfig *configv1.Network) (*appsv1.Deployment, error) {
+	if UseContour(ci) {
+		return nil, nil
+	}
+
 	deployment := manifests.RouterDeployment()
 	name := controller.RouterDeploymentName(ci)
 	deployment.Name = name.Name
@@ -466,11 +471,39 @@ func desiredRouterDeployment(ci *operatorv1.IngressController, ingressController
 func inferTLSProfileSpecFromDeployment(deployment *appsv1.Deployment) *configv1.TLSProfileSpec {
 	var env []corev1.EnvVar
 	foundContainer := false
+	usingContour := false
 	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if container.Name == "contour" {
+			usingContour = true
+			break
+		}
 		if container.Name == "router" {
 			env = container.Env
 			foundContainer = true
 			break
+		}
+	}
+
+	if usingContour {
+		// XXX Fake it now; fix it later.
+		// The below values come from
+		// <https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/cert.proto.html>.
+		return &configv1.TLSProfileSpec{
+			Ciphers: []string{
+				"[ECDHE-ECDSA-AES128-GCM-SHA256|ECDHE-ECDSA-CHACHA20-POLY1305]",
+				"[ECDHE-RSA-AES128-GCM-SHA256|ECDHE-RSA-CHACHA20-POLY1305]",
+				"ECDHE-ECDSA-AES128-SHA",
+				"ECDHE-RSA-AES128-SHA",
+				"AES128-GCM-SHA256",
+				"AES128-SHA",
+				"ECDHE-ECDSA-AES256-GCM-SHA384",
+				"ECDHE-RSA-AES256-GCM-SHA384",
+				"ECDHE-ECDSA-AES256-SHA",
+				"ECDHE-RSA-AES256-SHA",
+				"AES256-GCM-SHA384",
+				"AES256-SHA",
+			},
+			MinTLSVersion: configv1.VersionTLS12,
 		}
 	}
 
@@ -610,6 +643,33 @@ func hashableDeployment(deployment *appsv1.Deployment, onlyTemplate bool) *appsv
 		}
 	}
 	hashableDeployment.Spec.Template.Spec.Affinity = affinity
+	containers := make([]corev1.Container, len(deployment.Spec.Template.Spec.Containers))
+	for i, container := range deployment.Spec.Template.Spec.Containers {
+		env := container.Env
+		sort.Slice(env, func(i, j int) bool {
+			return env[i].Name < env[j].Name
+		})
+		ports := container.Ports
+		sort.Slice(ports, func(i, j int) bool {
+			return ports[i].Name < ports[j].Name
+		})
+		containers[i] = corev1.Container{
+			Args:            container.Args,
+			Command:         container.Command,
+			Env:             env,
+			Image:           container.Image,
+			ImagePullPolicy: container.ImagePullPolicy,
+			Name:            container.Name,
+			Ports:           ports,
+			VolumeMounts:    container.VolumeMounts,
+		}
+	}
+	sort.Slice(containers, func(i, j int) bool {
+		return containers[i].Name < containers[j].Name
+	})
+	hashableDeployment.Spec.Template.Spec.Containers = containers
+	hashableDeployment.Spec.Template.Spec.HostNetwork = deployment.Spec.Template.Spec.HostNetwork
+	hashableDeployment.Spec.Template.Spec.NodeSelector = deployment.Spec.Template.Spec.NodeSelector
 	tolerations := make([]corev1.Toleration, len(deployment.Spec.Template.Spec.Tolerations))
 	for i, toleration := range deployment.Spec.Template.Spec.Tolerations {
 		tolerations[i] = *toleration.DeepCopy()
@@ -623,29 +683,6 @@ func hashableDeployment(deployment *appsv1.Deployment, onlyTemplate bool) *appsv
 		return tolerations[i].Key < tolerations[j].Key || tolerations[i].Operator < tolerations[j].Operator || tolerations[i].Value < tolerations[j].Value || tolerations[i].Effect < tolerations[j].Effect
 	})
 	hashableDeployment.Spec.Template.Spec.Tolerations = tolerations
-	hashableDeployment.Spec.Template.Spec.NodeSelector = deployment.Spec.Template.Spec.NodeSelector
-	containers := make([]corev1.Container, len(deployment.Spec.Template.Spec.Containers))
-	for i, container := range deployment.Spec.Template.Spec.Containers {
-		env := container.Env
-		sort.Slice(env, func(i, j int) bool {
-			return env[i].Name < env[j].Name
-		})
-		containers[i] = corev1.Container{
-			Command:         container.Command,
-			Env:             env,
-			Image:           container.Image,
-			ImagePullPolicy: container.ImagePullPolicy,
-			Name:            container.Name,
-			LivenessProbe:   container.LivenessProbe,
-			ReadinessProbe:  container.ReadinessProbe,
-			VolumeMounts:    container.VolumeMounts,
-		}
-	}
-	sort.Slice(containers, func(i, j int) bool {
-		return containers[i].Name < containers[j].Name
-	})
-	hashableDeployment.Spec.Template.Spec.Containers = containers
-	hashableDeployment.Spec.Template.Spec.HostNetwork = deployment.Spec.Template.Spec.HostNetwork
 	volumes := make([]corev1.Volume, len(deployment.Spec.Template.Spec.Volumes))
 	for i, vol := range deployment.Spec.Template.Spec.Volumes {
 		volumes[i] = *vol.DeepCopy()
@@ -669,16 +706,15 @@ func hashableDeployment(deployment *appsv1.Deployment, onlyTemplate bool) *appsv
 
 	// Copy metadata and spec fields to which any changes should trigger an
 	// update of the deployment but should not trigger a rolling update.
-	hashableDeployment.Labels = deployment.Labels
-	hashableDeployment.Spec.Strategy = deployment.Spec.Strategy
 	var replicas *int32
 	if deployment.Spec.Replicas != nil && *deployment.Spec.Replicas != int32(1) {
 		// 1 is the default value for Replicas.
 		replicas = deployment.Spec.Replicas
 	}
 	hashableDeployment.Spec.Replicas = replicas
-	delete(hashableDeployment.Labels, controller.ControllerDeploymentHashLabel)
-	hashableDeployment.Spec.Selector = deployment.Spec.Selector
+	hashableDeployment.Spec.Strategy = deployment.Spec.Strategy
+	hashableDeployment.Spec.Template.Labels = deployment.Spec.Template.Labels
+	delete(hashableDeployment.Spec.Template.Labels, controller.ControllerDeploymentHashLabel)
 
 	return &hashableDeployment
 }
@@ -779,7 +815,19 @@ func deploymentConfigChanged(current, expected *appsv1.Deployment) (bool, *appsv
 		return false, nil
 	}
 
+	diff := cmp.Diff(current, expected)
+	log.Info("current router deployment differs from expected", "namespace", current.Namespace, "name", current.Name, "diff", diff)
+
 	updated := current.DeepCopy()
+	updated.Labels = expected.Labels
+	replicas := int32(1)
+	if expected.Spec.Replicas != nil {
+		replicas = *expected.Spec.Replicas
+	}
+	updated.Spec.Replicas = &replicas
+	updated.Spec.Strategy = expected.Spec.Strategy
+	updated.Spec.Template.Labels = expected.Spec.Template.Labels
+	updated.Spec.Template.Spec.Affinity = expected.Spec.Template.Spec.Affinity
 	// Copy the primary container from current and update its fields
 	// selectively.  Copy any sidecars from expected verbatim.
 	containers := make([]corev1.Container, len(expected.Spec.Template.Spec.Containers))
@@ -788,23 +836,18 @@ func deploymentConfigChanged(current, expected *appsv1.Deployment) (bool, *appsv
 		containers[i+1] = *container.DeepCopy()
 	}
 	updated.Spec.Template.Spec.Containers = containers
-	updated.Spec.Template.Labels = expected.Spec.Template.Labels
-	updated.Spec.Strategy = expected.Spec.Strategy
+	updated.Spec.Template.Spec.Containers[0].Command = expected.Spec.Template.Spec.Containers[0].Command
+	updated.Spec.Template.Spec.Containers[0].Env = expected.Spec.Template.Spec.Containers[0].Env
+	updated.Spec.Template.Spec.Containers[0].Image = expected.Spec.Template.Spec.Containers[0].Image
+	updated.Spec.Template.Spec.Containers[0].ImagePullPolicy = expected.Spec.Template.Spec.Containers[0].ImagePullPolicy
+	updated.Spec.Template.Spec.Containers[0].VolumeMounts = expected.Spec.Template.Spec.Containers[0].VolumeMounts
+	updated.Spec.Template.Spec.NodeSelector = expected.Spec.Template.Spec.NodeSelector
+	updated.Spec.Template.Spec.Tolerations = expected.Spec.Template.Spec.Tolerations
 	volumes := make([]corev1.Volume, len(expected.Spec.Template.Spec.Volumes))
 	for i, vol := range expected.Spec.Template.Spec.Volumes {
 		volumes[i] = *vol.DeepCopy()
 	}
 	updated.Spec.Template.Spec.Volumes = volumes
-	updated.Spec.Template.Spec.NodeSelector = expected.Spec.Template.Spec.NodeSelector
-	updated.Spec.Template.Spec.Containers[0].Env = expected.Spec.Template.Spec.Containers[0].Env
-	updated.Spec.Template.Spec.Containers[0].Image = expected.Spec.Template.Spec.Containers[0].Image
-	updated.Spec.Template.Spec.Containers[0].VolumeMounts = expected.Spec.Template.Spec.Containers[0].VolumeMounts
-	updated.Spec.Template.Spec.Tolerations = expected.Spec.Template.Spec.Tolerations
-	updated.Spec.Template.Spec.Affinity = expected.Spec.Template.Spec.Affinity
-	replicas := int32(1)
-	if expected.Spec.Replicas != nil {
-		replicas = *expected.Spec.Replicas
-	}
-	updated.Spec.Replicas = &replicas
+
 	return true, updated
 }

@@ -77,6 +77,9 @@ func New(mgr manager.Manager, config Config) (controller.Controller, error) {
 	if err := c.Watch(&source.Kind{Type: &appsv1.Deployment{}}, enqueueRequestForOwningIngressController(config.Namespace)); err != nil {
 		return nil, err
 	}
+	if err := c.Watch(&source.Kind{Type: &appsv1.DaemonSet{}}, enqueueRequestForOwningIngressController(config.Namespace)); err != nil {
+		return nil, err
+	}
 	if err := c.Watch(&source.Kind{Type: &corev1.Service{}}, enqueueRequestForOwningIngressController(config.Namespace)); err != nil {
 		return nil, err
 	}
@@ -539,6 +542,17 @@ func (r *reconciler) ensureIngressDeleted(ingress *operatorv1.IngressController)
 		errs = append(errs, fmt.Errorf("deployment still exists for ingress %s/%s", ingress.Namespace, ingress.Name))
 	}
 
+	if haveContour, _, err := r.ensureContourDeployment(ingress, nil, nil, nil, nil); err != nil {
+		errs = append(errs, fmt.Errorf("failed to delete Contour deployment for ingress %s/%s: %v", ingress.Namespace, ingress.Name, err))
+	} else if haveContour {
+		errs = append(errs, fmt.Errorf("Contour deployment still exists for ingress %s/%s", ingress.Namespace, ingress.Name))
+	}
+	if haveEnvoy, _, err := r.ensureEnvoyDaemonSet(ingress, nil, nil, nil, nil); err != nil {
+		errs = append(errs, fmt.Errorf("failed to delete Envoy daemonset for ingress %s/%s: %v", ingress.Namespace, ingress.Name, err))
+	} else if haveEnvoy {
+		errs = append(errs, fmt.Errorf("Envoy daemonset still exists for ingress %s/%s", ingress.Namespace, ingress.Name))
+	}
+
 	if len(errs) == 0 {
 		// Remove the ingresscontroller finalizer.
 		if slice.ContainsString(ingress.Finalizers, manifests.IngressControllerFinalizer) {
@@ -575,9 +589,25 @@ func (r *reconciler) ensureIngressController(ci *operatorv1.IngressController, d
 		return fmt.Errorf("failed to ensure namespace: %v", err)
 	}
 
+	if _, _, err := r.ensureServiceCAConfigMap(); err != nil {
+		return fmt.Errorf("failed to ensure the service CA configmap: %v", err)
+	}
+
 	deployment, err := r.ensureRouterDeployment(ci, infraConfig, ingressConfig, apiConfig, networkConfig)
 	if err != nil {
 		return fmt.Errorf("failed to ensure deployment: %v", err)
+	}
+
+	haveContour, contour, err := r.ensureContourDeployment(ci, infraConfig, ingressConfig, apiConfig, networkConfig)
+	if err != nil {
+		return fmt.Errorf("failed to ensure Contour deployment: %v", err)
+	} else if haveContour {
+		deployment = contour
+	}
+
+	_, _, err = r.ensureEnvoyDaemonSet(ci, infraConfig, ingressConfig, apiConfig, networkConfig)
+	if err != nil {
+		return fmt.Errorf("failed to ensure Envoy daemonset: %v", err)
 	}
 
 	var errs []error
@@ -611,6 +641,22 @@ func (r *reconciler) ensureIngressController(ci *operatorv1.IngressController, d
 		errs = append(errs, fmt.Errorf("failed to create internal router service for ingresscontroller %s: %v", ci.Name, err))
 	} else if err := r.ensureMetricsIntegration(ci, internalSvc, deploymentRef); err != nil {
 		errs = append(errs, fmt.Errorf("failed to integrate metrics with openshift-monitoring for ingresscontroller %s: %v", ci.Name, err))
+	}
+
+	if _, _, err := r.ensureContourConfigMap(ci, deploymentRef); err != nil {
+		errs = append(errs, err)
+	}
+
+	if _, _, err := r.ensureContourService(ci, deploymentRef); err != nil {
+		errs = append(errs, err)
+	}
+
+	if _, _, err := r.ensureEnvoyConfigMap(ci, deploymentRef); err != nil {
+		errs = append(errs, err)
+	}
+
+	if _, _, err := r.ensureEnvoyService(ci, deploymentRef); err != nil {
+		errs = append(errs, err)
 	}
 
 	if _, _, err := r.ensureRsyslogConfigMap(ci, deploymentRef, ingressConfig); err != nil {

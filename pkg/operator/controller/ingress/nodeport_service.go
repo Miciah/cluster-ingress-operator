@@ -51,7 +51,7 @@ func (r *reconciler) ensureNodePortService(ic *operatorv1.IngressController, dep
 		if updated, err := r.updateNodePortService(current, desired); err != nil {
 			return true, nil, fmt.Errorf("failed to update NodePort service: %v", err)
 		} else if updated {
-			log.Info("updated NodePort service", "service", desired)
+			log.Info("updated NodePort service", "current service", current, "desired service", desired)
 		}
 	}
 
@@ -94,6 +94,7 @@ func desiredNodePortService(ic *operatorv1.IngressController, deploymentRef meta
 				},
 			},
 			Selector: controller.IngressControllerDeploymentPodSelector(ic).MatchLabels,
+			SessionAffinity: corev1.ServiceAffinityNone,
 			Type:     corev1.ServiceTypeNodePort,
 		},
 	}

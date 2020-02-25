@@ -28,6 +28,9 @@ func (r *reconciler) ensureInternalIngressControllerService(ic *operatorv1.Ingre
 	if err != nil {
 		return nil, err
 	}
+	if desired == nil {
+		return nil, nil
+	}
 	if current != nil {
 		return current, nil
 	}
@@ -52,6 +55,10 @@ func (r *reconciler) currentInternalIngressControllerService(ic *operatorv1.Ingr
 }
 
 func desiredInternalIngressControllerService(ic *operatorv1.IngressController, deploymentRef metav1.OwnerReference) *corev1.Service {
+	if UseContour(ic) {
+		return nil
+	}
+
 	s := manifests.InternalIngressControllerService()
 
 	name := controller.InternalIngressControllerServiceName(ic)

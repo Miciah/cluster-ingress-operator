@@ -83,6 +83,8 @@ func (r *reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 		}
 	} else if !ingresscontroller.IsStatusDomainSet(ingress) {
 		log.Info("ingresscontroller domain not set; reconciliation will be skipped", "request", request)
+	} else if ingresscontroller.UseContour(ingress) {
+		log.Info("ingresscontroller uses Contour; reconciliation will be skipped", "request", request)
 	} else {
 		deployment := &appsv1.Deployment{}
 		err = r.client.Get(context.TODO(), controller.RouterDeploymentName(ingress), deployment)

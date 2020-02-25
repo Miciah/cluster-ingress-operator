@@ -43,6 +43,88 @@ func RouterDeploymentName(ci *operatorv1.IngressController) types.NamespacedName
 	}
 }
 
+// ContourDeploymentName returns the namespaced name for the Contour deployment.
+func ContourDeploymentName(ci *operatorv1.IngressController) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "openshift-ingress",
+		Name:      "contour-" + ci.Name,
+	}
+}
+
+// ContourConfigMapName returns the namespaced name for the Contour configmap.
+func ContourConfigMapName(ic *operatorv1.IngressController) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "openshift-ingress",
+		Name:      "contour-conf-" + ic.Name,
+	}
+}
+
+func ContourPodSelector(ic *operatorv1.IngressController) *metav1.LabelSelector {
+	return &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"app":                     "contour",
+			ControllerDeploymentLabel: ic.Name,
+		},
+	}
+}
+
+// ContourSecretName returns the namespaced name for the Contour secret.
+func ContourSecretName(ic *operatorv1.IngressController) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "openshift-ingress",
+		Name:      "contour-" + ic.Name,
+	}
+}
+
+// ContourServiceName returns the namespaced name for the Contour service.
+func ContourServiceName(ic *operatorv1.IngressController) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "openshift-ingress",
+		Name:      "contour-" + ic.Name,
+	}
+}
+
+// EnvoyConfigMapName returns the namespaced name for the Envoy configmap.
+func EnvoyConfigMapName(ic *operatorv1.IngressController) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "openshift-ingress",
+		Name:      "envoy-conf-" + ic.Name,
+	}
+}
+
+// EnvoyDaemonSetName returns the namespaced name for the Envoy daemonset.
+func EnvoyDaemonSetName(ci *operatorv1.IngressController) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "openshift-ingress",
+		Name:      "envoy-" + ci.Name,
+	}
+}
+
+func EnvoyPodSelector(ic *operatorv1.IngressController) *metav1.LabelSelector {
+	return &metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"app":                     "envoy",
+			ControllerDeploymentLabel: ic.Name,
+		},
+	}
+}
+
+// EnvoySecretName returns the namespaced name for the Envoy secret.
+func EnvoySecretName(ic *operatorv1.IngressController) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "openshift-ingress",
+		Name:      "envoy-" + ic.Name,
+	}
+}
+
+// EnvoyServiceName returns the namespaced name for the Envoy service.
+func EnvoyServiceName(ci *operatorv1.IngressController) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "openshift-ingress",
+		Name:      "envoy-" + ci.Name,
+	}
+}
+
 // RouterCASecretName returns the namespaced name for the router CA secret.
 // This secret holds the CA certificate that the operator will use to create
 // default certificates for ingresscontrollers.
@@ -60,6 +142,18 @@ func RouterCAConfigMapName() types.NamespacedName {
 	return types.NamespacedName{
 		Namespace: GlobalMachineSpecifiedConfigNamespace,
 		Name:      "router-ca",
+	}
+}
+
+// ServiceCAConfigMapName returns the namespaced name for the service
+// CA configmap.  The ingress operator creates this configmap with the
+// service.beta.openshift.io/inject-cabundle annotation; the service
+// CA configmap bundle injector updates the configmap so that it
+// contains the service CA; and Contour and Envoy read it.
+func ServiceCAConfigMapName() types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: "openshift-ingress",
+		Name:      "service-ca",
 	}
 }
 

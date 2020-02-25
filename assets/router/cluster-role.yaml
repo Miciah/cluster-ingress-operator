@@ -37,6 +37,57 @@ rules:
   - watch
 
 - apiGroups:
+  - contour.heptio.com
+  resources:
+  - ingressroutes
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - create
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - projectcontour.io
+  resources:
+  - httpproxies
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - projectcontour.io
+  resources:
+  - tlscertificatedelegations
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - contour.heptio.com
+  resources:
+  - tlscertificatedelegations
+  verbs:
+  - list
+  - watch
+
+- apiGroups:
   - route.openshift.io
   resources:
   - routes/status
