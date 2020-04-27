@@ -772,6 +772,16 @@ func deploymentConfigChanged(current, expected *appsv1.Deployment) (bool, *appsv
 		return false, nil
 	}
 
+	hasher := fnv.New32a()
+	hashableCurrent := hashableDeployment(current, false)
+	deepHashObject(hasher, hashableCurrent)
+	hashOfCurrent := rand.SafeEncodeString(fmt.Sprint(hasher.Sum32()))
+	hasher = fnv.New32a()
+	hashableExpected := hashableDeployment(expected, false)
+	deepHashObject(hasher, hashableExpected)
+	hashOfExpected := rand.SafeEncodeString(fmt.Sprint(hasher.Sum32()))
+	log.Info("current router deployment differs from expected", "current hash", hashOfCurrent, "expected hash", hashOfExpected, "current", hashableCurrent, "expected", hashableExpected)
+
 	updated := current.DeepCopy()
 	// Copy the primary container from current and update its fields
 	// selectively.  Copy any sidecars from expected verbatim.
