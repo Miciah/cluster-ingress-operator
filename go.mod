@@ -34,3 +34,5 @@ require (
 // Remove when https://github.com/kubernetes-sigs/controller-runtime/issues/1033
 // is fixed (controller-runtime milestone v0.7.x).
 replace sigs.k8s.io/controller-runtime => github.com/zchee/sigs.k8s-controller-runtime v0.6.1-0.20200623114430-46812d3a0a50
+
+replace github.com/openshift/api => github.com/Miciah/api v0.0.0-20200826160722-6ae6d0f92e91

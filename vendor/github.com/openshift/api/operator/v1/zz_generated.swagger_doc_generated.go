@@ -398,7 +398,8 @@ func (EtcdList) SwaggerDoc() map[string]string {
 }
 
 var map_AWSClassicLoadBalancerParameters = map[string]string{
-	"": "AWSClassicLoadBalancerParameters holds configuration parameters for an AWS Classic load balancer.",
+	"":                             "AWSClassicLoadBalancerParameters holds configuration parameters for an AWS Classic load balancer.",
+	"connectionIdleTimeoutSeconds": "connectionIdleTimeoutSeconds is the time interval, in seconds, that a connection may be idle before the load balancer closes the connection.  If not set, the timeout defaults to 60 seconds.",
 }
 
 func (AWSClassicLoadBalancerParameters) SwaggerDoc() map[string]string {
@@ -430,10 +431,34 @@ var map_AccessLogging = map[string]string{
 	"httpLogFormat":      "httpLogFormat specifies the format of the log message for an HTTP request.\n\nIf this field is empty, log messages use the implementation's default HTTP log format.  For HAProxy's default HTTP log format, see the HAProxy documentation: http://cbonte.github.io/haproxy-dconv/2.0/configuration.html#8.2.3\n\nNote that this format only applies to cleartext HTTP connections and to secure HTTP connections for which the ingress controller terminates encryption (that is, edge-terminated or reencrypt connections).  It does not affect the log format for TLS passthrough connections.",
 	"httpCaptureHeaders": "httpCaptureHeaders defines HTTP headers that should be captured in access logs.  If this field is empty, no headers are captured.\n\nNote that this option only applies to cleartext HTTP connections and to secure HTTP connections for which the ingress controller terminates encryption (that is, edge-terminated or reencrypt connections).  Headers cannot be captured for TLS passthrough connections.",
 	"httpCaptureCookies": "httpCaptureCookies specifies HTTP cookies that should be captured in access logs.  If this field is empty, no cookies are captured.",
+	"logEmptyRequests":   "logEmptyRequests specifies how connections on which no request is received should be logged.  Typically, these empty requests come from load balancers' health probes or Web browsers' speculative connections (\"preconnect\"), in which case logging these requests may be undesirable.  However, these requests may also be caused by network errors, in which case logging empty requests may be useful for diagnosing the errors.  Allowed values for this field are \"Log\" and \"Ignore\".  If the field is empty. empty requests are logged.",
 }
 
 func (AccessLogging) SwaggerDoc() map[string]string {
 	return map_AccessLogging
+}
+
+var map_CertificateRevocationListSpec = map[string]string{
+	"":                "CertificateRevocationListSpec specifies configuration for obtaining a certificate revocation list.",
+	"source":          "source specifies how the certificate revocation list should be obtained.  Allowed values are \"Secret\" and \"URL\".  If \"Secret\" is specified, the name of a secret must be specified in the secretReference field.  If \"URL\" is provided, a URL must be specified in the url field.",
+	"secretReference": "secretReference specifies the secret containing the certificate revocation list that should be used to verify a client's certificate.",
+	"url":             "url specifies a URL that can be used to update the certificate revocation list that should be used to verify a client's certificate. The ingress operator periodically polls the URL and updates the ingress controller's list.",
+}
+
+func (CertificateRevocationListSpec) SwaggerDoc() map[string]string {
+	return map_CertificateRevocationListSpec
+}
+
+var map_ClientTLS = map[string]string{
+	"":                          "ClientTLS specifies TLS configuration to enable client-to-server authentication, which can be used for mutual TLS.",
+	"clientCertificatePolicy":   "clientCertificatePolicy specifies whether the ingress controller requires clients to provide certificates.  This field accepts the values \"Required\" or \"Optional\".",
+	"clientCA":                  "clientCA is an optional reference to a configmap containing the PEM-encoded CA certificate bundle that should be used to verify a client's certificate.  If omitted, the system trust bundle is used.",
+	"certificateRevocationList": "certificateRevocationList specifies how to obtain a certificate revocation list that should be used to verify a client's certificate.",
+	"allowedSubjectPatterns":    "allowedSubjectPatterns specifies a list of regular expressions that should be matched against the distinguished name on a client certificate to filter requests.  If this list is empty, no filtering is performed.  If the list is nonempty, then at least one pattern must match a client certificate's distinguished name or else the ingress controller denies the request.",
+}
+
+func (ClientTLS) SwaggerDoc() map[string]string {
+	return map_ClientTLS
 }
 
 var map_ContainerLoggingDestinationParameters = map[string]string{
@@ -554,9 +579,11 @@ var map_IngressControllerSpec = map[string]string{
 	"routeSelector":              "routeSelector is used to filter the set of Routes serviced by the ingress controller. This is useful for implementing shards.\n\nIf unset, the default is no filtering.",
 	"nodePlacement":              "nodePlacement enables explicit control over the scheduling of the ingress controller.\n\nIf unset, defaults are used. See NodePlacement for more details.",
 	"tlsSecurityProfile":         "tlsSecurityProfile specifies settings for TLS connections for ingresscontrollers.\n\nIf unset, the default is based on the apiservers.config.openshift.io/cluster resource.\n\nNote that when using the Old, Intermediate, and Modern profile types, the effective profile configuration is subject to change between releases. For example, given a specification to use the Intermediate profile deployed on release X.Y.Z, an upgrade to release X.Y.Z+1 may cause a new profile configuration to be applied to the ingress controller, resulting in a rollout.\n\nNote that the minimum TLS version for ingress controllers is 1.1, and the maximum TLS version is 1.2.  An implication of this restriction is that the Modern TLS profile type cannot be used because it requires TLS 1.3.",
+	"clientTLS":                  "clientTLS specifies settings for requesting and verifying client certificates, which can be used to enable mutual TLS.",
 	"routeAdmission":             "routeAdmission defines a policy for handling new route claims (for example, to allow or deny claims across namespaces).\n\nIf empty, defaults will be applied. See specific routeAdmission fields for details about their defaults.",
 	"logging":                    "logging defines parameters for what should be logged where.  If this field is empty, operational logs are enabled but access logs are disabled.",
 	"httpHeaders":                "httpHeaders defines policy for HTTP headers.\n\nIf this field is empty, the default values are used.",
+	"httpEmptyRequestsPolicy":    "httpEmptyRequestsPolicy describes how HTTP connections should be handled if the connection times out before a request is received. Allowed values for this field are \"Respond\" and \"Ignore\".  If the field is set to \"Respond\", the ingress controller sends an HTTP 400 or 408 response, logs the connection (if access logging is enabled), and counts the connection in the appropriate metrics.  If the field is set to \"Ignore\", the ingress controller closes the connection without sending a response, logging the connection, or incrementing metrics.  If the field is empty, the default value is \"Respond\".\n\nTypically, these connections come from load balancers' health probes or Web browsers' speculative connections (\"preconnect\") and can be safely ignored.  However, these requests may also be caused by network errors, and so setting this field to \"Respond\" may impede detection and diagnosis of problems.",
 }
 
 func (IngressControllerSpec) SwaggerDoc() map[string]string {
@@ -725,7 +752,7 @@ func (AdditionalNetworkDefinition) SwaggerDoc() map[string]string {
 }
 
 var map_ClusterNetworkEntry = map[string]string{
-	"": "ClusterNetworkEntry is a subnet from which to allocate PodIPs. A network of size HostPrefix (in CIDR notation) will be allocated when nodes join the cluster. Not all network providers support multiple ClusterNetworks",
+	"": "ClusterNetworkEntry is a subnet from which to allocate PodIPs. A network of size HostPrefix (in CIDR notation) will be allocated when nodes join the cluster. If the HostPrefix field is not used by the plugin, it can be left unset. Not all network providers support multiple ClusterNetworks",
 }
 
 func (ClusterNetworkEntry) SwaggerDoc() map[string]string {

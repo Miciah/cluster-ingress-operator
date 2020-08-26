@@ -3,6 +3,7 @@ package ingress
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/cluster-ingress-operator/pkg/manifests"
@@ -61,6 +62,10 @@ const (
 	// must be between 2 and 10.
 	awsLBHealthCheckHealthyThresholdAnnotation = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold"
 	awsLBHealthCheckHealthyThresholdDefault    = "2"
+
+	// awsELBConnectionIdleTimeoutAnnotation specifies the timeout for idle
+	// connections for a Classic ELB.
+	awsELBConnectionIdleTimeout = "service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"
 
 	iksLBScopeAnnotation = "service.kubernetes.io/ibm-load-balancer-cloud-provider-ip-type"
 )
@@ -178,9 +183,17 @@ func desiredLoadBalancerService(ci *operatorv1.IngressController, deploymentRef 
 			if ci.Status.EndpointPublishingStrategy.LoadBalancer != nil &&
 				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters != nil &&
 				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.Type == operatorv1.AWSLoadBalancerProvider &&
-				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS != nil &&
-				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS.Type == operatorv1.AWSNetworkLoadBalancer {
-				service.Annotations[AWSLBTypeAnnotation] = AWSNLBAnnotation
+				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS != nil {
+				switch ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS.Type {
+				case operatorv1.AWSNetworkLoadBalancer:
+					service.Annotations[AWSLBTypeAnnotation] = AWSNLBAnnotation
+				case operatorv1.AWSClassicLoadBalancer:
+					if ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS.ClassicLoadBalancerParameters != nil {
+						if v := ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS.ClassicLoadBalancerParameters.ConnectionIdleTimeoutSeconds; v != 0 {
+							service.Annotations[awsELBConnectionIdleTimeout] = strconv.FormatUint(v, 10)
+						}
+					}
+				}
 			}
 			// Set the load balancer for AWS to be as aggressive as Azure (2 fail @ 5s interval, 2 healthy)
 			service.Annotations[awsLBHealthCheckIntervalAnnotation] = awsLBHealthCheckIntervalDefault
@@ -188,7 +201,9 @@ func desiredLoadBalancerService(ci *operatorv1.IngressController, deploymentRef 
 			service.Annotations[awsLBHealthCheckUnhealthyThresholdAnnotation] = awsLBHealthCheckUnhealthyThresholdDefault
 			service.Annotations[awsLBHealthCheckHealthyThresholdAnnotation] = awsLBHealthCheckHealthyThresholdDefault
 		case configv1.IBMCloudPlatformType:
-			service.Annotations[iksLBScopeAnnotation] = "public"
+			if !isInternal {
+				service.Annotations[iksLBScopeAnnotation] = "public"
+			}
 		}
 		// Azure load balancers are not customizable and are set to (2 fail @ 5s interval, 2 healthy)
 		// GCP load balancers are not customizable and are set to (3 fail @ 8s interval, 1 healthy)

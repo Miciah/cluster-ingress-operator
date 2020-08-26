@@ -147,6 +147,10 @@ type IngressControllerSpec struct {
 	// +optional
 	TLSSecurityProfile *configv1.TLSSecurityProfile `json:"tlsSecurityProfile,omitempty"`
 
+	// clientTLS specifies settings for requesting and verifying client
+	// certificates, which can be used to enable mutual TLS.
+	ClientTLS ClientTLS `json:"clientTLS,omitempty"`
+
 	// routeAdmission defines a policy for handling new route claims (for example,
 	// to allow or deny claims across namespaces).
 	//
@@ -169,6 +173,25 @@ type IngressControllerSpec struct {
 	//
 	// +optional
 	HTTPHeaders *IngressControllerHTTPHeaders `json:"httpHeaders,omitempty"`
+
+	// httpEmptyRequestsPolicy describes how HTTP connections should be
+	// handled if the connection times out before a request is received.
+	// Allowed values for this field are "Respond" and "Ignore".  If the
+	// field is set to "Respond", the ingress controller sends an HTTP 400
+	// or 408 response, logs the connection (if access logging is enabled),
+	// and counts the connection in the appropriate metrics.  If the field
+	// is set to "Ignore", the ingress controller closes the connection
+	// without sending a response, logging the connection, or incrementing
+	// metrics.  If the field is empty, the default value is "Respond".
+	//
+	// Typically, these connections come from load balancers' health probes
+	// or Web browsers' speculative connections ("preconnect") and can be
+	// safely ignored.  However, these requests may also be caused by
+	// network errors, and so setting this field to "Respond" may impede
+	// detection and diagnosis of problems.
+	//
+	// +optional
+	HTTPEmptyRequestsPolicy HTTPEmptyRequestsPolicy `json:"httpEmptyRequestsPolicy,omitempty"`
 }
 
 // NodePlacement describes node scheduling configuration for an ingress
@@ -340,6 +363,13 @@ const (
 // AWSClassicLoadBalancerParameters holds configuration parameters for an
 // AWS Classic load balancer.
 type AWSClassicLoadBalancerParameters struct {
+	// connectionIdleTimeoutSeconds is the time interval, in seconds, that a
+	// connection may be idle before the load balancer closes the
+	// connection.  If not set, the timeout defaults to 60 seconds.
+	//
+	// +kubebuilder:validation:Optional
+	// +optional
+	ConnectionIdleTimeoutSeconds uint64 `json:"connectionIdleTimeoutSeconds"`
 }
 
 // AWSNetworkLoadBalancerParameters holds configuration parameters for an
@@ -437,6 +467,100 @@ type EndpointPublishingStrategy struct {
 	// Present only if type is NodePortService.
 	// +optional
 	NodePort *NodePortStrategy `json:"nodePort,omitempty"`
+}
+
+// ClientCertificatePolicy describes the policy for client certificates.
+// +kubebuilder:validation:Enum="";Required;Optional
+type ClientCertificatePolicy string
+
+const (
+	// ClientCertificatePolicyRequired indicates that a client certificate should be
+	// required.
+	ClientCertificatePolicyRequired ClientCertificatePolicy = "Required"
+
+	// ClientCertificatePolicyOptional indicates that a client certificate
+	// should be requested but not required.
+	ClientCertificatePolicyOptional ClientCertificatePolicy = "Optional"
+)
+
+// CertificateRevocationListSource describes the policy for client certificates.
+// +kubebuilder:validation:Enum="";Required;Optional
+type CertificateRevocationListSource string
+
+const (
+	// CertificateRevocationListSourceSecret indicates that the client
+	// certificate list should be read from a Secret.
+	CertificateRevocationListSourceSecret CertificateRevocationListSource = "Secret"
+
+	// CertificateRevocationListSourceURL indicates that the client
+	// certificate list should be retrieved from a URL.
+	CertificateRevocationListSourceURL CertificateRevocationListSource = "URL"
+)
+
+// CertificateRevocationListSpec specifies configuration for obtaining a
+// certificate revocation list.
+//
+// +union
+type CertificateRevocationListSpec struct {
+	// source specifies how the certificate revocation list should be
+	// obtained.  Allowed values are "Secret" and "URL".  If "Secret" is
+	// specified, the name of a secret must be specified in the
+	// secretReference field.  If "URL" is provided, a URL must be specified
+	// in the url field.
+	//
+	// +unionDiscriminator
+	// +kubebuilder:validation:Required
+	// +required
+	Source CertificateRevocationListSource `json:"source"`
+
+	// secretReference specifies the secret containing the certificate
+	// revocation list that should be used to verify a client's certificate.
+	//
+	// +optional
+	SecretReference configv1.SecretNameReference `json:"secretReference,omitempty"`
+
+	// url specifies a URL that can be used to update the certificate
+	// revocation list that should be used to verify a client's certificate.
+	// The ingress operator periodically polls the URL and updates the
+	// ingress controller's list.
+	//
+	// +optional
+	URL string `json:"url,omitempty"`
+}
+
+// ClientTLS specifies TLS configuration to enable client-to-server
+// authentication, which can be used for mutual TLS.
+type ClientTLS struct {
+	// clientCertificatePolicy specifies whether the ingress controller
+	// requires clients to provide certificates.  This field accepts the
+	// values "Required" or "Optional".
+	//
+	// +kubebuilder:validation:Required
+	// +required
+	ClientCertificatePolicy ClientCertificatePolicy `json:"clientCertificatePolicy"`
+
+	// clientCA is an optional reference to a configmap containing the
+	// PEM-encoded CA certificate bundle that should be used to verify a
+	// client's certificate.  If omitted, the system trust bundle is used.
+	//
+	// +optional
+	ClientCA configv1.ConfigMapNameReference `json:"clientCA"`
+
+	// certificateRevocationList specifies how to obtain a certificate
+	// revocation list that should be used to verify a client's certificate.
+	//
+	// +optional
+	CertificateRevocationList CertificateRevocationListSpec `json:"certificateRevocationList,omitempty"`
+
+	// allowedSubjectPatterns specifies a list of regular expressions that
+	// should be matched against the distinguished name on a client
+	// certificate to filter requests.  If this list is empty, no filtering
+	// is performed.  If the list is nonempty, then at least one pattern
+	// must match a client certificate's distinguished name or else the
+	// ingress controller denies the request.
+	//
+	// +optional
+	AllowedSubjectPatterns []string `json:"allowedSubjectPatterns,omitempty"`
 }
 
 // RouteAdmissionPolicy is an admission policy for allowing new route claims.
@@ -701,13 +825,24 @@ type IngressControllerCaptureHTTPCookie struct {
 	MaxLength int `json:"maxLength"`
 }
 
+// LoggingPolicy indicates how an event should be logged.
+// +kubebuilder:validation:Enum=Log;Ignore
+type LoggingPolicy string
+
+const (
+	// LoggingPolicyLog indicates that an event should be logged.
+	LoggingPolicyLog LoggingPolicy = "Log"
+	// LoggingPolicyIgnore indicates that an event should not be logged.
+	LoggingPolicyIgnore LoggingPolicy = "Ignore"
+)
+
 // AccessLogging describes how client requests should be logged.
 type AccessLogging struct {
 	// destination is where access logs go.
 	//
 	// +kubebuilder:validation:Required
 	// +required
-	Destination LoggingDestination `json:"destination"`
+	Destination LoggingDestination `json:"destination,omitempty"`
 
 	// httpLogFormat specifies the format of the log message for an HTTP
 	// request.
@@ -745,6 +880,16 @@ type AccessLogging struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=1
 	HTTPCaptureCookies []IngressControllerCaptureHTTPCookie `json:"httpCaptureCookies,omitempty"`
+
+	// logEmptyRequests specifies how connections on which no request is
+	// received should be logged.  Typically, these empty requests come from
+	// load balancers' health probes or Web browsers' speculative
+	// connections ("preconnect"), in which case logging these requests may
+	// be undesirable.  However, these requests may also be caused by
+	// network errors, in which case logging empty requests may be useful
+	// for diagnosing the errors.  Allowed values for this field are "Log"
+	// and "Ignore".  If the field is empty. empty requests are logged.
+	LogEmptyRequests LoggingPolicy `json:"logEmptyRequests,omitempty"`
 }
 
 // IngressControllerLogging describes what should be logged where.
@@ -840,6 +985,19 @@ type IngressControllerHTTPHeaders struct {
 	// +optional
 	UniqueId IngressControllerHTTPUniqueIdHeaderPolicy `json:"uniqueId,omitempty"`
 }
+
+// HTTPEmptyRequestsPolicy indicates how an event should be logged.
+// +kubebuilder:validation:Enum=Respond;Ignore
+type HTTPEmptyRequestsPolicy string
+
+const (
+	// HTTPEmptyRequestsPolicyRespond indicates that the ingress controller
+	// should respond to empty requests.
+	HTTPEmptyRequestsPolicyRespond HTTPEmptyRequestsPolicy = "Respond"
+	// HTTPEmptyRequestsPolicyIgnore indicates that the ingress controller
+	// should ignore empty requests.
+	HTTPEmptyRequestsPolicyIgnore HTTPEmptyRequestsPolicy = "Ignore"
+)
 
 var (
 	// Available indicates the ingress controller deployment is available.

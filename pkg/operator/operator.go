@@ -12,6 +12,7 @@ import (
 	operatorcontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller"
 	certcontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/certificate"
 	certpublishercontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/certificate-publisher"
+	crlcontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/crl"
 	dnscontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/dns"
 	ingresscontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/ingress"
 	statuscontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller/status"
@@ -103,6 +104,11 @@ func New(config operatorconfig.Config, kubeConfig *rest.Config) (*Operator, erro
 	// Set up the certificate-publisher controller
 	if _, err := certpublishercontroller.New(mgr, config.Namespace, "openshift-ingress"); err != nil {
 		return nil, fmt.Errorf("failed to create certificate-publisher controller: %v", err)
+	}
+
+	// Set up the crl controller
+	if _, err := crlcontroller.New(mgr); err != nil {
+		return nil, fmt.Errorf("failed to create crl controller: %v", err)
 	}
 
 	// Set up the DNS controller
