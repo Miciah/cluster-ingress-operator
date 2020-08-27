@@ -347,6 +347,13 @@ const (
 // AWSClassicLoadBalancerParameters holds configuration parameters for an
 // AWS Classic load balancer.
 type AWSClassicLoadBalancerParameters struct {
+	// connectionIdleTimeoutSeconds is the time interval, in seconds, that a
+	// connection may be idle before the load balancer closes the
+	// connection.  If not set, the timeout defaults to 60 seconds.
+	//
+	// +kubebuilder:validation:Optional
+	// +optional
+	ConnectionIdleTimeoutSeconds uint64 `json:"connectionIdleTimeoutSeconds"`
 }
 
 // AWSNetworkLoadBalancerParameters holds configuration parameters for an
