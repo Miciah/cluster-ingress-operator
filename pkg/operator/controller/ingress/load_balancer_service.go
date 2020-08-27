@@ -3,6 +3,7 @@ package ingress
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -64,6 +65,10 @@ const (
 	// must be between 2 and 10.
 	awsLBHealthCheckHealthyThresholdAnnotation = "service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold"
 	awsLBHealthCheckHealthyThresholdDefault    = "2"
+
+	// awsELBConnectionIdleTimeoutAnnotation specifies the timeout for idle
+	// connections for a Classic ELB.
+	awsELBConnectionIdleTimeoutAnnotation = "service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout"
 
 	// iksLBScopeAnnotation is the annotation used on a service to specify an IBM
 	// load balancer IP type.
@@ -220,9 +225,17 @@ func desiredLoadBalancerService(ci *operatorv1.IngressController, deploymentRef 
 			if ci.Status.EndpointPublishingStrategy.LoadBalancer != nil &&
 				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters != nil &&
 				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.Type == operatorv1.AWSLoadBalancerProvider &&
-				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS != nil &&
-				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS.Type == operatorv1.AWSNetworkLoadBalancer {
-				service.Annotations[AWSLBTypeAnnotation] = AWSNLBAnnotation
+				ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS != nil {
+				switch ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS.Type {
+				case operatorv1.AWSNetworkLoadBalancer:
+					service.Annotations[AWSLBTypeAnnotation] = AWSNLBAnnotation
+				case operatorv1.AWSClassicLoadBalancer:
+					if ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS.ClassicLoadBalancerParameters != nil {
+						if v := ci.Status.EndpointPublishingStrategy.LoadBalancer.ProviderParameters.AWS.ClassicLoadBalancerParameters.ConnectionIdleTimeoutSeconds; v != 0 {
+							service.Annotations[awsELBConnectionIdleTimeoutAnnotation] = strconv.FormatUint(v, 10)
+						}
+					}
+				}
 			}
 			// Set the load balancer for AWS to be as aggressive as Azure (2 fail @ 5s interval, 2 healthy)
 			service.Annotations[awsLBHealthCheckIntervalAnnotation] = awsLBHealthCheckIntervalDefault
