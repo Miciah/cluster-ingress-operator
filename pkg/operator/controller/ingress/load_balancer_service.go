@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+
 	operatorv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/cluster-ingress-operator/pkg/manifests"
 	"github.com/openshift/cluster-ingress-operator/pkg/operator/controller"
@@ -141,16 +144,35 @@ func (r *reconciler) ensureLoadBalancerService(ci *operatorv1.IngressController,
 	if err != nil {
 		return false, nil, err
 	}
-	if wantLBS && !haveLBS {
+
+	switch {
+	case !wantLBS && !haveLBS:
+		return false, nil, nil
+	case !wantLBS && haveLBS:
+		if err := r.client.Delete(context.TODO(), currentLBService); err != nil {
+			if !errors.IsNotFound(err) {
+				return true, currentLBService, fmt.Errorf("failed to delete load balancer service %s/%s: %v", currentLBService.Namespace, currentLBService.Name, err)
+			}
+		} else {
+			log.Info("deleted load balancer service", "service", currentLBService)
+		}
+		return false, nil, nil
+	case wantLBS && !haveLBS:
 		if err := r.client.Create(context.TODO(), desiredLBService); err != nil {
 			return false, nil, fmt.Errorf("failed to create load balancer service %s/%s: %v", desiredLBService.Namespace, desiredLBService.Name, err)
 		}
-		log.Info("created load balancer service", "namespace", desiredLBService.Namespace, "name", desiredLBService.Name)
-		return true, desiredLBService, nil
+		log.Info("created load balancer service", "service", desiredLBService)
+		return r.currentLoadBalancerService(ci)
+	case wantLBS && haveLBS:
+		if updated, err := r.updateLoadBalancerService(currentLBService, desiredLBService); err != nil {
+			return true, currentLBService, fmt.Errorf("failed to update load balancer service %s/%s: %v", currentLBService.Namespace, currentLBService.Name, err)
+		} else if updated {
+			log.Info("updated load balancer service", "service", desiredLBService)
+			return r.currentLoadBalancerService(ci)
+		}
 	}
-	// return haveLBS instead of forcing true here since
-	// there is no guarantee that currentLBService != nil
-	return haveLBS, currentLBService, nil
+
+	return true, currentLBService, nil
 }
 
 // desiredLoadBalancerService returns the desired LB service for a
@@ -259,4 +281,52 @@ func (r *reconciler) finalizeLoadBalancerService(ci *operatorv1.IngressControlle
 	}
 	log.Info("finalized load balancer service for ingress", "namespace", ci.Namespace, "name", ci.Name)
 	return true, nil
+}
+
+// updateLoadBalancerService updates a load-balancer service.  Returns a Boolean
+// indicating whether the service was updated, and an error value.
+func (r *reconciler) updateLoadBalancerService(current, desired *corev1.Service) (bool, error) {
+	changed, updated := loadBalancerServiceChanged(current, desired)
+	if !changed {
+		return false, nil
+	}
+
+	if err := r.client.Update(context.TODO(), updated); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// loadBalancerServiceChanged checks if the current load-balancer service spec
+// matches the expected spec and if not returns an updated one.
+func loadBalancerServiceChanged(current, expected *corev1.Service) (bool, *corev1.Service) {
+	serviceCmpOpts := []cmp.Option{
+		// Ignore fields that the API, other controllers, or user may
+		// have modified.
+		cmpopts.IgnoreFields(corev1.ServicePort{}, "NodePort"),
+		cmpopts.IgnoreFields(corev1.ServiceSpec{}, "ClusterIP", "ExternalIPs", "HealthCheckNodePort"),
+		cmp.Comparer(cmpServiceAffinity),
+		cmpopts.EquateEmpty(),
+	}
+	if cmp.Equal(current.Spec, expected.Spec, serviceCmpOpts...) {
+		return false, nil
+	}
+
+	updated := current.DeepCopy()
+	updated.Spec = expected.Spec
+
+	// Preserve fields that the API, other controllers, or user may have
+	// modified.
+	updated.Spec.ClusterIP = current.Spec.ClusterIP
+	updated.Spec.ExternalIPs = current.Spec.ExternalIPs
+	updated.Spec.HealthCheckNodePort = current.Spec.HealthCheckNodePort
+	for i, updatedPort := range updated.Spec.Ports {
+		for _, currentPort := range current.Spec.Ports {
+			if currentPort.Name == updatedPort.Name {
+				updated.Spec.Ports[i].NodePort = currentPort.NodePort
+			}
+		}
+	}
+
+	return true, updated
 }
