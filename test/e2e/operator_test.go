@@ -192,6 +192,29 @@ func TestDefaultIngressClass(t *testing.T) {
 	// }
 }
 
+// TestOperatorRecreatesItsClusterOperator verifies that the ingress operator
+// recreates the "ingress" clusteroperator if the clusteroperator is deleted.
+func TestOperatorRecreatesItsClusterOperator(t *testing.T) {
+	co := &configv1.ClusterOperator{}
+	coName := controller.IngressClusterOperatorName()
+	if err := kclient.Get(context.TODO(), coName, co); err != nil {
+		t.Fatalf("failed to get clusteroperator %q: %v", coName.Name, err)
+	}
+	if err := kclient.Delete(context.TODO(), co); err != nil {
+		t.Fatalf("failed to delete clusteroperator %q: %v", coName.Name, err)
+	}
+	err := wait.PollImmediate(1*time.Second, 30*time.Second, func() (bool, error) {
+		if err := kclient.Get(context.TODO(), coName, co); err != nil {
+			t.Logf("failed to get clusteroperator %q: %v", coName.Name, err)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("failed to observe recreation of clusteroperator %q: %v", coName.Name, err)
+	}
+}
+
 func TestUserDefinedIngressController(t *testing.T) {
 	name := types.NamespacedName{Namespace: operatorNamespace, Name: "test"}
 	ing := newLoadBalancerController(name, name.Name+"."+dnsConfig.Spec.BaseDomain)

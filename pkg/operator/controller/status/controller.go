@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -66,6 +67,27 @@ func New(mgr manager.Manager, config Config) (controller.Controller, error) {
 		return nil, err
 	}
 	if err := c.Watch(&source.Kind{Type: &operatorv1.IngressController{}}, &handler.EnqueueRequestForObject{}); err != nil {
+		return nil, err
+	}
+	isIngressClusterOperator := func(o client.Object) bool {
+		return o.GetName() == operatorcontroller.IngressClusterOperatorName().Name
+	}
+	clusteroperatorToDefaultIngressController := func(_ client.Object) []reconcile.Request {
+		return []reconcile.Request{{
+			NamespacedName: types.NamespacedName{
+				Namespace: config.Namespace,
+				Name:      manifests.DefaultIngressControllerName,
+			},
+		}}
+	}
+	if err := c.Watch(
+		&source.Kind{Type: &configv1.ClusterOperator{}},
+		// The status controller doesn't care which ingresscontroller it
+		// is reconciling, so just enqueue a request to reconcile the
+		// default ingresscontroller.
+		handler.EnqueueRequestsFromMapFunc(clusteroperatorToDefaultIngressController),
+		predicate.NewPredicateFuncs(isIngressClusterOperator),
+	); err != nil {
 		return nil, err
 	}
 	return c, nil
