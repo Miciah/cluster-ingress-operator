@@ -593,8 +593,8 @@ func desiredRouterDeployment(ci *operatorv1.IngressController, ingressController
 		minTLSVersion = "TLSv1.1"
 	case configv1.VersionTLS12:
 		minTLSVersion = "TLSv1.2"
-	// TODO: Add TLS 1.3 support when haproxy is built with an openssl
-	//  version that supports tls v1.3.
+	case configv1.VersionTLS13:
+		minTLSVersion = "TLSv1.3"
 	default:
 		minTLSVersion = "TLSv1.2"
 	}
@@ -815,7 +815,8 @@ func inferTLSProfileSpecFromDeployment(deployment *appsv1.Deployment) *configv1.
 		minTLSVersion = configv1.VersionTLS11
 	case "TLSv1.2":
 		minTLSVersion = configv1.VersionTLS12
-	// TODO: Add TLS 1.3 support when haproxy is built with openssl 1.1.1.
+	case "TLSv1.3":
+		minTLSVersion = configv1.VersionTLS13
 	default:
 		minTLSVersion = configv1.VersionTLS12
 	}
