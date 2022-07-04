@@ -213,9 +213,9 @@ func HardStopAfterIsEnabled(ic *operatorv1.IngressController, ingressConfig *con
 // replica count in the IngressController resource, that value will be used.
 // Otherwise, if unset, we follow the choice algorithm as described in the
 // documentation for the IngressController replicas parameter.
-func determineDeploymentReplicas(ic *operatorv1.IngressController, ingressConfig *configv1.Ingress, infraConfig *configv1.Infrastructure) int32 {
+func determineDeploymentReplicas(ic *operatorv1.IngressController, ingressConfig *configv1.Ingress, infraConfig *configv1.Infrastructure) (int32, error) {
 	if ic.Spec.Replicas != nil {
-		return *ic.Spec.Replicas
+		return *ic.Spec.Replicas, nil
 	}
 
 	return DetermineReplicas(ingressConfig, infraConfig)
@@ -254,7 +254,10 @@ func desiredRouterDeployment(ci *operatorv1.IngressController, ingressController
 	volumes := deployment.Spec.Template.Spec.Volumes
 	routerVolumeMounts := deployment.Spec.Template.Spec.Containers[0].VolumeMounts
 
-	desiredReplicas := determineDeploymentReplicas(ci, ingressConfig, infraConfig)
+	desiredReplicas, err := determineDeploymentReplicas(ci, ingressConfig, infraConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine number of replicas for default ingress controller: %w", err)
+	}
 	deployment.Spec.Replicas = &desiredReplicas
 
 	configureAffinity := false

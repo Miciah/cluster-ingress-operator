@@ -9,7 +9,7 @@ import (
 // determining the number of replicas for the default IngressController and in
 // determining the number of replicas in the Deployments corresponding to
 // IngressController resources in which the number of replicas is unset
-func DetermineReplicas(ingressConfig *configv1.Ingress, infraConfig *configv1.Infrastructure) int32 {
+func DetermineReplicas(ingressConfig *configv1.Ingress, infraConfig *configv1.Infrastructure) (int32, error) {
 	// DefaultPlacement affects which topology field we're interested in
 	topology := infraConfig.Status.InfrastructureTopology
 	if ingressConfig.Status.DefaultPlacement == configv1.DefaultPlacementControlPlane {
@@ -17,9 +17,9 @@ func DetermineReplicas(ingressConfig *configv1.Ingress, infraConfig *configv1.In
 	}
 
 	if topology == configv1.SingleReplicaTopologyMode {
-		return 1
+		return 1, nil
 	}
 
 	// TODO: Set the replicas value to the number of workers.
-	return 2
+	return 2, nil
 }

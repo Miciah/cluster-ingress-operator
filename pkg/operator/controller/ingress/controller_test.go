@@ -1,16 +1,14 @@
 package ingress
 
 import (
+	"github.com/google/go-cmp/cmp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-
 	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // TestSetDefaultDomain verifies that setDefaultDomain behaves correctly.
@@ -153,6 +151,19 @@ func TestSetDefaultPublishingStrategySetsPlatformDefaults(t *testing.T) {
 			}
 		}
 	)
+	ingressConfigNLB := &configv1.Ingress{
+		Spec: configv1.IngressSpec{
+			Domain: "apps.mycluster.com",
+			LoadBalancer: configv1.LoadBalancer{
+				Platform: configv1.IngressPlatformSpec{
+					Type: configv1.AWSPlatformType,
+					AWS: &configv1.AWSIngressSpec{
+						Type: configv1.NLB,
+					},
+				},
+			},
+		},
+	}
 
 	testCases := []struct {
 		name                    string
@@ -255,7 +266,7 @@ func TestSetDefaultPublishingStrategySetsPlatformDefaults(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ic := &operatorv1.IngressController{}
 			platformStatus := tc.platformStatus.DeepCopy()
-			if actualResult := setDefaultPublishingStrategy(ic, platformStatus, tc.domainMatchesBaseDomain); actualResult != true {
+			if actualResult := setDefaultPublishingStrategy(ic, platformStatus, tc.domainMatchesBaseDomain, ingressConfigNLB); actualResult != true {
 				t.Errorf("expected result %v, got %v", true, actualResult)
 			}
 			if diff := cmp.Diff(tc.expectedIC, ic); len(diff) != 0 {
@@ -270,9 +281,47 @@ func TestSetDefaultPublishingStrategySetsPlatformDefaults(t *testing.T) {
 // spec.endpointPublishingStrategy.
 func TestSetDefaultPublishingStrategyHandlesUpdates(t *testing.T) {
 	var (
-		managedDNS   = operatorv1.ManagedLoadBalancerDNS
-		unmanagedDNS = operatorv1.UnmanagedLoadBalancerDNS
-		makeIC       = func(spec operatorv1.IngressControllerSpec, status operatorv1.IngressControllerStatus) *operatorv1.IngressController {
+		managedDNS         = operatorv1.ManagedLoadBalancerDNS
+		unmanagedDNS       = operatorv1.UnmanagedLoadBalancerDNS
+		makePlatformStatus = func(platform configv1.PlatformType) *configv1.PlatformStatus {
+			return &configv1.PlatformStatus{
+				Type: platform,
+			}
+		}
+		makeIngressConfig = func(lbType configv1.AWSLBType, platform configv1.PlatformType) *configv1.Ingress {
+			if platform == configv1.AWSPlatformType && lbType == configv1.Classic {
+				return &configv1.Ingress{
+					Spec: configv1.IngressSpec{
+						Domain: "apps.mycluster.com",
+						LoadBalancer: configv1.LoadBalancer{
+							Platform: configv1.IngressPlatformSpec{
+								Type: configv1.AWSPlatformType,
+								AWS: &configv1.AWSIngressSpec{
+									Type: configv1.Classic,
+								},
+							},
+						},
+					},
+				}
+			} else if platform == configv1.AWSPlatformType && lbType == configv1.NLB {
+				return &configv1.Ingress{
+					Spec: configv1.IngressSpec{
+						Domain: "apps.mycluster.com",
+						LoadBalancer: configv1.LoadBalancer{
+							Platform: configv1.IngressPlatformSpec{
+								Type: configv1.AWSPlatformType,
+								AWS: &configv1.AWSIngressSpec{
+									Type: configv1.NLB,
+								},
+							},
+						},
+					},
+				}
+			}
+			return nil
+		}
+
+		makeIC = func(spec operatorv1.IngressControllerSpec, status operatorv1.IngressControllerStatus) *operatorv1.IngressController {
 			return &operatorv1.IngressController{Spec: spec, Status: status}
 		}
 		spec = func(eps *operatorv1.EndpointPublishingStrategy) operatorv1.IngressControllerSpec {
@@ -300,6 +349,29 @@ func TestSetDefaultPublishingStrategyHandlesUpdates(t *testing.T) {
 				LoadBalancer: lbs,
 			}
 		}
+		nlbScope = func(scope operatorv1.LoadBalancerScope, policy *operatorv1.LoadBalancerDNSManagementPolicy) *operatorv1.EndpointPublishingStrategy {
+			lbStrategy := lbs(scope, policy)
+			lbStrategy.ProviderParameters = &operatorv1.ProviderLoadBalancerParameters{
+				Type: operatorv1.AWSLoadBalancerProvider,
+				AWS: &operatorv1.AWSLoadBalancerParameters{
+					Type:                          operatorv1.AWSNetworkLoadBalancer,
+					NetworkLoadBalancerParameters: &operatorv1.AWSNetworkLoadBalancerParameters{},
+				},
+			}
+			return eps(lbStrategy)
+		}
+		classicScope = func(scope operatorv1.LoadBalancerScope, policy *operatorv1.LoadBalancerDNSManagementPolicy) *operatorv1.EndpointPublishingStrategy {
+			lbStrategy := lbs(scope, policy)
+			lbStrategy.ProviderParameters = &operatorv1.ProviderLoadBalancerParameters{
+				Type: operatorv1.AWSLoadBalancerProvider,
+				AWS: &operatorv1.AWSLoadBalancerParameters{
+					Type:                          operatorv1.AWSClassicLoadBalancer,
+					ClassicLoadBalancerParameters: &operatorv1.AWSClassicLoadBalancerParameters{},
+				},
+			}
+			return eps(lbStrategy)
+		}
+
 		elb = func() *operatorv1.EndpointPublishingStrategy {
 			eps := eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS))
 			eps.LoadBalancer.ProviderParameters = &operatorv1.ProviderLoadBalancerParameters{
@@ -413,239 +485,296 @@ func TestSetDefaultPublishingStrategyHandlesUpdates(t *testing.T) {
 		name                    string
 		ic                      *operatorv1.IngressController
 		expectedIC              *operatorv1.IngressController
-		expectedResult          bool
+		platformStatus          *configv1.PlatformStatus
+		ingressConfig           *configv1.Ingress
 		domainMatchesBaseDomain bool
+		expectedResult          bool
 	}{
 		{
 			name:                    "loadbalancer scope changed from external to internal",
 			ic:                      makeIC(spec(eps(lbs(operatorv1.InternalLoadBalancer, &managedDNS))), status(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS)))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(eps(lbs(operatorv1.InternalLoadBalancer, &managedDNS))), status(eps(lbs(operatorv1.InternalLoadBalancer, &managedDNS)))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(eps(lbs(operatorv1.InternalLoadBalancer, &managedDNS))), status(nlbScope(operatorv1.InternalLoadBalancer, &managedDNS))),
 		},
 		{
 			name:                    "loadbalancer scope changed from internal to external",
 			ic:                      makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS))), status(eps(lbs(operatorv1.InternalLoadBalancer, &managedDNS)))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS))), status(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS)))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS))), status(nlbScope(operatorv1.ExternalLoadBalancer, &managedDNS))),
 		},
 		{
-			name:                    "loadbalancer type set to ELB",
+			name:                    "loadbalancer scope changed from external to internal when Classic LB Type present in ingress config",
+			ic:                      makeIC(spec(eps(lbs(operatorv1.InternalLoadBalancer, &managedDNS))), status(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS)))),
+			expectedResult:          true,
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.Classic, configv1.AWSPlatformType),
+			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(eps(lbs(operatorv1.InternalLoadBalancer, &managedDNS))), status(classicScope(operatorv1.InternalLoadBalancer, &managedDNS))),
+		},
+		{
+			name:                    "loadbalancer scope changed from internal to external when Classic LB Type present in ingress config",
+			ic:                      makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS))), status(eps(lbs(operatorv1.InternalLoadBalancer, &managedDNS)))),
+			expectedResult:          true,
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.Classic, configv1.AWSPlatformType),
+			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS))), status(classicScope(operatorv1.ExternalLoadBalancer, &managedDNS))),
+		},
+		{
+			name:                    "loadbalancer type set to ELB in Spec but NLB set in Ingress Config",
 			ic:                      makeIC(spec(elb()), status(elb())),
 			expectedResult:          false,
-			expectedIC:              makeIC(spec(elb()), status(elbWithNullParameters())),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(elb()), status(elbWithNullParameters())),
 		},
 		{
-			name:                    "loadbalancer type set to NLB",
+			name:                    "loadbalancer type set to NLB in Spec but Classic set in Ingress Config",
 			ic:                      makeIC(spec(nlb()), status(nlb())),
 			expectedResult:          false,
-			expectedIC:              makeIC(spec(nlb()), status(nlb())),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.Classic, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(nlb()), status(nlb())),
 		},
 		{
 			name:                    "loadbalancer type changed from ELB to NLB",
 			ic:                      makeIC(spec(nlb()), status(elb())),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(nlb()), status(nlb())),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(nlb()), status(nlb())),
 		},
 		{
 			name:                    "loadbalancer type changed from NLB to ELB",
 			ic:                      makeIC(spec(elb()), status(nlb())),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(elb()), status(elbWithNullParameters())),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(elb()), status(elbWithNullParameters())),
 		},
 		{
 			name:                    "loadbalancer ELB connection idle timeout changed from unset with null provider parameters to 2m",
 			ic:                      makeIC(spec(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute})), status(elbWithNullParameters())),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute})), status(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute}))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute})), status(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute}))),
 		},
 		{
 			name:                    "loadbalancer ELB connection idle timeout changed from unset with empty provider parameters to 2m",
 			ic:                      makeIC(spec(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute})), status(elbWithIdleTimeout(metav1.Duration{}))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute})), status(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute}))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute})), status(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute}))),
 		},
 		{
 			name:                    "loadbalancer ELB connection idle timeout changed from unset to -1s",
 			ic:                      makeIC(spec(elbWithIdleTimeout(metav1.Duration{Duration: -1 * time.Second})), status(elb())),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(elbWithIdleTimeout(metav1.Duration{Duration: -1 * time.Second})), status(elbWithIdleTimeout(metav1.Duration{}))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(elbWithIdleTimeout(metav1.Duration{Duration: -1 * time.Second})), status(elbWithIdleTimeout(metav1.Duration{}))),
 		},
 		{
 			name:                    "loadbalancer ELB connection idle timeout changed from 2m to unset",
 			ic:                      makeIC(spec(elb()), status(elbWithIdleTimeout(metav1.Duration{Duration: 2 * time.Minute}))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(elb()), status(elbWithIdleTimeout(metav1.Duration{}))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(elb()), status(elbWithIdleTimeout(metav1.Duration{}))),
 		},
 		{
 			name:                    "loadbalancer GCP Global Access changed from unset to global",
 			ic:                      makeIC(spec(gcpLB(operatorv1.GCPGlobalAccess)), status(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS)))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(gcpLB(operatorv1.GCPGlobalAccess)), status(gcpLB(operatorv1.GCPGlobalAccess))),
+			platformStatus:          makePlatformStatus(configv1.GCPPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(gcpLB(operatorv1.GCPGlobalAccess)), status(gcpLB(operatorv1.GCPGlobalAccess))),
 		},
 		{
 			name:                    "loadbalancer GCP Global Access changed from global to local",
 			ic:                      makeIC(spec(gcpLB(operatorv1.GCPLocalAccess)), status(gcpLB(operatorv1.GCPGlobalAccess))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(gcpLB(operatorv1.GCPLocalAccess)), status(gcpLB(operatorv1.GCPLocalAccess))),
+			platformStatus:          makePlatformStatus(configv1.GCPPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(gcpLB(operatorv1.GCPLocalAccess)), status(gcpLB(operatorv1.GCPLocalAccess))),
 		},
 		{
 			// https://bugzilla.redhat.com/show_bug.cgi?id=1997226
 			name:                    "nodeport protocol changed to PROXY with null status.endpointPublishingStrategy.nodePort",
 			ic:                      makeIC(spec(nodePort(operatorv1.ProxyProtocol)), status(nodePortWithNull())),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(nodePort(operatorv1.ProxyProtocol)), status(nodePort(operatorv1.ProxyProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(nodePort(operatorv1.ProxyProtocol)), status(nodePort(operatorv1.ProxyProtocol))),
 		},
 		{
 			name:                    "nodeport spec.endpointPublishingStrategy.nodePort set to null",
 			ic:                      makeIC(spec(nodePortWithNull()), status(nodePort(operatorv1.TCPProtocol))),
 			expectedResult:          false,
-			expectedIC:              makeIC(spec(nodePortWithNull()), status(nodePort(operatorv1.TCPProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(nodePortWithNull()), status(nodePort(operatorv1.TCPProtocol))),
 		},
 		{
 			name:                    "nodeport protocol changed from empty to PROXY",
 			ic:                      makeIC(spec(nodePort(operatorv1.ProxyProtocol)), status(nodePort(""))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(nodePort(operatorv1.ProxyProtocol)), status(nodePort(operatorv1.ProxyProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(nodePort(operatorv1.ProxyProtocol)), status(nodePort(operatorv1.ProxyProtocol))),
 		},
 		{
 			name:                    "nodeport protocol changed from TCP to PROXY",
 			ic:                      makeIC(spec(nodePort(operatorv1.ProxyProtocol)), status(nodePort(operatorv1.TCPProtocol))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(nodePort(operatorv1.ProxyProtocol)), status(nodePort(operatorv1.ProxyProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(nodePort(operatorv1.ProxyProtocol)), status(nodePort(operatorv1.ProxyProtocol))),
 		},
 		{
 			name:                    "nodeport protocol changed from PROXY to TCP",
 			ic:                      makeIC(spec(nodePort(operatorv1.TCPProtocol)), status(nodePort(operatorv1.ProxyProtocol))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(nodePort(operatorv1.TCPProtocol)), status(nodePort(operatorv1.TCPProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(nodePort(operatorv1.TCPProtocol)), status(nodePort(operatorv1.TCPProtocol))),
 		},
 		{
 			// https://bugzilla.redhat.com/show_bug.cgi?id=1997226
 			name:                    "hostnetwork protocol changed to PROXY with null status.endpointPublishingStrategy.hostNetwork",
 			ic:                      makeIC(spec(hostNetwork(operatorv1.ProxyProtocol)), status(hostNetworkWithNull())),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(hostNetwork(operatorv1.ProxyProtocol)), status(hostNetwork(operatorv1.ProxyProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(hostNetwork(operatorv1.ProxyProtocol)), status(hostNetwork(operatorv1.ProxyProtocol))),
 		},
 		{
 			name:                    "hostnetwork protocol changed from empty to PROXY",
 			ic:                      makeIC(spec(hostNetwork(operatorv1.ProxyProtocol)), status(hostNetwork(""))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(hostNetwork(operatorv1.ProxyProtocol)), status(hostNetwork(operatorv1.ProxyProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(hostNetwork(operatorv1.ProxyProtocol)), status(hostNetwork(operatorv1.ProxyProtocol))),
 		},
 		{
 			name:                    "hostnetwork protocol changed from TCP to PROXY",
 			ic:                      makeIC(spec(hostNetwork(operatorv1.ProxyProtocol)), status(hostNetwork(operatorv1.TCPProtocol))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(hostNetwork(operatorv1.ProxyProtocol)), status(hostNetwork(operatorv1.ProxyProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(hostNetwork(operatorv1.ProxyProtocol)), status(hostNetwork(operatorv1.ProxyProtocol))),
 		},
 		{
 			name:                    "hostnetwork protocol changed from PROXY to TCP",
 			ic:                      makeIC(spec(hostNetwork(operatorv1.TCPProtocol)), status(hostNetwork(operatorv1.ProxyProtocol))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(hostNetwork(operatorv1.TCPProtocol)), status(hostNetwork(operatorv1.TCPProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(hostNetwork(operatorv1.TCPProtocol)), status(hostNetwork(operatorv1.TCPProtocol))),
 		},
 		{
 			name:                    "hostnetwork ports changed",
 			ic:                      makeIC(spec(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol)), status(hostNetwork(operatorv1.TCPProtocol))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol)), status(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol)), status(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol))),
 		},
 		{
 			name:                    "hostnetwork ports changed, with status null",
 			ic:                      makeIC(spec(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol)), status(hostNetworkWithNull())),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol)), status(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol)), status(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol))),
 		},
 		{
 			name:                    "hostnetwork ports removed",
 			ic:                      makeIC(spec(hostNetwork(operatorv1.TCPProtocol)), status(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(hostNetwork(operatorv1.TCPProtocol)), status(hostNetwork(operatorv1.TCPProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(hostNetwork(operatorv1.TCPProtocol)), status(hostNetwork(operatorv1.TCPProtocol))),
 		},
 		{
 			name:                    "hostnetwork ports removed, with spec null",
 			ic:                      makeIC(spec(hostNetworkWithNull()), status(customHostNetwork(8080, 8443, 8136, operatorv1.TCPProtocol))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(hostNetworkWithNull()), status(hostNetwork(operatorv1.TCPProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(hostNetworkWithNull()), status(hostNetwork(operatorv1.TCPProtocol))),
 		},
 		{
 			name:                    "private protocol changed to PROXY with null status.endpointPublishingStrategy.private",
 			ic:                      makeIC(spec(private(operatorv1.ProxyProtocol)), status(privateWithNull())),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(private(operatorv1.ProxyProtocol)), status(private(operatorv1.ProxyProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(private(operatorv1.ProxyProtocol)), status(private(operatorv1.ProxyProtocol))),
 		},
 		{
 			name:                    "private spec.endpointPublishingStrategy.private set to null",
 			ic:                      makeIC(spec(privateWithNull()), status(private(operatorv1.TCPProtocol))),
 			expectedResult:          false,
-			expectedIC:              makeIC(spec(privateWithNull()), status(private(operatorv1.TCPProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(privateWithNull()), status(private(operatorv1.TCPProtocol))),
 		},
 		{
 			name:                    "private protocol changed from empty to PROXY",
 			ic:                      makeIC(spec(private(operatorv1.ProxyProtocol)), status(private(""))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(private(operatorv1.ProxyProtocol)), status(private(operatorv1.ProxyProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(private(operatorv1.ProxyProtocol)), status(private(operatorv1.ProxyProtocol))),
 		},
 		{
 			name:                    "private protocol changed from TCP to PROXY",
 			ic:                      makeIC(spec(private(operatorv1.ProxyProtocol)), status(private(operatorv1.TCPProtocol))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(private(operatorv1.ProxyProtocol)), status(private(operatorv1.ProxyProtocol))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
 			domainMatchesBaseDomain: true,
+			expectedIC:              makeIC(spec(private(operatorv1.ProxyProtocol)), status(private(operatorv1.ProxyProtocol))),
 		},
 		{
 			name:                    "private protocol changed from PROXY to TCP",
 			ic:                      makeIC(spec(private(operatorv1.TCPProtocol)), status(private(operatorv1.ProxyProtocol))),
 			expectedResult:          true,
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			domainMatchesBaseDomain: true,
 			expectedIC:              makeIC(spec(private(operatorv1.TCPProtocol)), status(private(operatorv1.TCPProtocol))),
-			domainMatchesBaseDomain: true,
-		},
-		{
-			name:                    "loadbalancer dnsManagementPolicy changed from Managed to Unmanaged",
-			ic:                      makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &unmanagedDNS))), status(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS)))),
-			expectedResult:          true,
-			expectedIC:              makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &unmanagedDNS))), status(eps(lbs(operatorv1.ExternalLoadBalancer, &unmanagedDNS)))),
-			domainMatchesBaseDomain: true,
 		},
 		{
 			name:                    "loadbalancer dnsManagementPolicy changed from Unmanaged to Managed",
 			ic:                      makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS))), status(eps(lbs(operatorv1.ExternalLoadBalancer, &unmanagedDNS)))),
 			expectedResult:          true,
-			expectedIC:              makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS))), status(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS)))),
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
+			expectedIC:              makeIC(spec(eps(lbs(operatorv1.ExternalLoadBalancer, &managedDNS))), status(nlbScope(operatorv1.ExternalLoadBalancer, &managedDNS))),
 			domainMatchesBaseDomain: true,
 		},
 		{
 			name:                    "when endpointPublishingStrategy is nil, loadbalancer dnsManagementPolicy defaults to Unmanaged due to domain mismatch with base domain",
 			ic:                      makeIC(spec(nil), status(nil)),
 			expectedResult:          true,
+			platformStatus:          makePlatformStatus(configv1.AWSPlatformType),
+			ingressConfig:           makeIngressConfig(configv1.NLB, configv1.AWSPlatformType),
 			expectedIC:              makeIC(spec(nil), status(eps(lbs(operatorv1.ExternalLoadBalancer, &unmanagedDNS)))),
 			domainMatchesBaseDomain: false,
 		},
@@ -653,10 +782,7 @@ func TestSetDefaultPublishingStrategyHandlesUpdates(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ic := tc.ic.DeepCopy()
-			platformStatus := &configv1.PlatformStatus{
-				Type: configv1.AWSPlatformType,
-			}
-			if actualResult := setDefaultPublishingStrategy(ic, platformStatus, tc.domainMatchesBaseDomain); actualResult != tc.expectedResult {
+			if actualResult := setDefaultPublishingStrategy(ic, tc.platformStatus, tc.domainMatchesBaseDomain, tc.ingressConfig); actualResult != tc.expectedResult {
 				t.Errorf("expected result %v, got %v", tc.expectedResult, actualResult)
 			}
 			if diff := cmp.Diff(tc.expectedIC, ic); len(diff) != 0 {
