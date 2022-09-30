@@ -1,0 +1,9 @@
+subjectKeyIdentifier=hash
+[ca]
+default_ca=root_ca
+[root_ca]
+certificate=root-ca.crt
+database=index.txt
+default_crl_hours=1
+default_md=sha256
+private_key=root-ca.key

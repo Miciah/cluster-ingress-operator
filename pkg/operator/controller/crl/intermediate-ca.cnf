@@ -1,0 +1,11 @@
+crlDistributionPoints=URI:http://example/root.crl
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+[ca]
+default_ca=intermediate_ca
+[intermediate_ca]
+certificate=intermediate-ca.crt
+database=index.txt
+default_crl_hours=1
+default_md=sha256
+private_key=intermediate-ca.key

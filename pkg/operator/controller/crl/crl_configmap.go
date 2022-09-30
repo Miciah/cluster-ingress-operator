@@ -241,9 +241,12 @@ func getCRL(distributionPoints []string) (*pkix.CertificateList, error) {
 	return nil, kerrors.NewAggregate(errs)
 }
 
+// httpGet is the "net/http".Get function but can be overridden in unit tests.
+var httpGet = http.Get
+
 // getHTTPCRL gets a certificate revocation list using the provided HTTP URL.
 func getHTTPCRL(url string) (*pkix.CertificateList, error) {
-	resp, err := http.Get(url)
+	resp, err := httpGet(url)
 	if err != nil {
 		return nil, fmt.Errorf("http.Get failed: %w", err)
 	}
