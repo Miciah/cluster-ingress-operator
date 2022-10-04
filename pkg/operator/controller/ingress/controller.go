@@ -440,6 +440,9 @@ func setDefaultPublishingStrategy(ic *operatorv1.IngressController, platformStat
 			effectiveStrategy.LoadBalancer.DNSManagementPolicy = operatorv1.UnmanagedLoadBalancerDNS
 		}
 
+		// Set provider parameters based on the cluster ingress config.
+		setDefaultProviderParameters(effectiveStrategy.LoadBalancer, ingressConfig)
+
 	case operatorv1.NodePortServiceStrategyType:
 		if effectiveStrategy.NodePort == nil {
 			effectiveStrategy.NodePort = &operatorv1.NodePortStrategy{}
@@ -503,14 +506,8 @@ func setDefaultPublishingStrategy(ic *operatorv1.IngressController, platformStat
 			// Detect changes to provider-specific parameters.
 			// Currently the only platforms with configurable
 			// provider-specific parameters are AWS and GCP.
-			switch platformStatus.Type {
-			case configv1.AWSPlatformType:
-				var awslbType configv1.AWSLBType
-				if ingressConfig.Spec.LoadBalancer.Platform.Type != "" && ingressConfig.Spec.LoadBalancer.Platform.AWS != nil && ingressConfig.Spec.LoadBalancer.Platform.AWS.Type != "" {
-					awslbType = ingressConfig.Spec.LoadBalancer.Platform.AWS.Type
-				} else {
-					awslbType = configv1.AWSLBType(operatorv1.AWSClassicLoadBalancer)
-				}
+			switch specLB.ProviderParameters.Type {
+			case operatorv1.AWSLoadBalancerProvider:
 				if statusLB.ProviderParameters == nil {
 					statusLB.ProviderParameters = &operatorv1.ProviderLoadBalancerParameters{}
 				}
@@ -518,20 +515,10 @@ func setDefaultPublishingStrategy(ic *operatorv1.IngressController, platformStat
 					statusLB.ProviderParameters.Type = operatorv1.AWSLoadBalancerProvider
 				}
 				if statusLB.ProviderParameters.AWS == nil {
-					statusLB.ProviderParameters.AWS = &operatorv1.AWSLoadBalancerParameters{
-						Type: operatorv1.AWSLoadBalancerType(awslbType),
-					}
-					if awslbType == configv1.NLB {
-						statusLB.ProviderParameters.AWS.NetworkLoadBalancerParameters = &operatorv1.AWSNetworkLoadBalancerParameters{}
-					} else if awslbType == configv1.Classic {
-						statusLB.ProviderParameters.AWS.ClassicLoadBalancerParameters = &operatorv1.AWSClassicLoadBalancerParameters{}
-					}
+					statusLB.ProviderParameters.AWS = &operatorv1.AWSLoadBalancerParameters{}
 				}
-				if specLB.ProviderParameters != nil && specLB.ProviderParameters.AWS != nil && len(specLB.ProviderParameters.AWS.Type) != 0 {
-					awslbType = configv1.AWSLBType(specLB.ProviderParameters.AWS.Type)
-				}
-				if awslbType != configv1.AWSLBType(statusLB.ProviderParameters.AWS.Type) {
-					statusLB.ProviderParameters.AWS.Type = operatorv1.AWSLoadBalancerType(awslbType)
+				if specLB.ProviderParameters.AWS.Type != statusLB.ProviderParameters.AWS.Type {
+					statusLB.ProviderParameters.AWS.Type = specLB.ProviderParameters.AWS.Type
 					changed = true
 				}
 				if statusLB.ProviderParameters.AWS.Type == operatorv1.AWSClassicLoadBalancer {
@@ -542,7 +529,7 @@ func setDefaultPublishingStrategy(ic *operatorv1.IngressController, platformStat
 					// supported for AWS Classic ELBs is the
 					// connection idle timeout.
 					var specIdleTimeout metav1.Duration
-					if specLB.ProviderParameters != nil && specLB.ProviderParameters.AWS != nil && specLB.ProviderParameters.AWS.ClassicLoadBalancerParameters != nil {
+					if specLB.ProviderParameters.AWS != nil && specLB.ProviderParameters.AWS.ClassicLoadBalancerParameters != nil {
 						specIdleTimeout = specLB.ProviderParameters.AWS.ClassicLoadBalancerParameters.ConnectionIdleTimeout
 					}
 					statusIdleTimeout := statusLB.ProviderParameters.AWS.ClassicLoadBalancerParameters.ConnectionIdleTimeout
@@ -555,21 +542,20 @@ func setDefaultPublishingStrategy(ic *operatorv1.IngressController, platformStat
 						changed = true
 					}
 				}
-			case configv1.GCPPlatformType:
+			case operatorv1.GCPLoadBalancerProvider:
 				// The only provider parameter that is supported
 				// for GCP is the ClientAccess parameter.
-				var specClientAccess, statusClientAccess operatorv1.GCPClientAccess
-				if specLB.ProviderParameters != nil && specLB.ProviderParameters.GCP != nil {
-					specClientAccess = specLB.ProviderParameters.GCP.ClientAccess
-				}
+				var statusClientAccess operatorv1.GCPClientAccess
+				specClientAccess := specLB.ProviderParameters.GCP.ClientAccess
 				if statusLB.ProviderParameters != nil && statusLB.ProviderParameters.GCP != nil {
 					statusClientAccess = statusLB.ProviderParameters.GCP.ClientAccess
 				}
 				if specClientAccess != statusClientAccess {
 					if statusLB.ProviderParameters == nil {
-						statusLB.ProviderParameters = &operatorv1.ProviderLoadBalancerParameters{
-							Type: operatorv1.GCPLoadBalancerProvider,
-						}
+						statusLB.ProviderParameters = &operatorv1.ProviderLoadBalancerParameters{}
+					}
+					if len(statusLB.ProviderParameters.Type) == 0 {
+						statusLB.ProviderParameters.Type = operatorv1.GCPLoadBalancerProvider
 					}
 					if statusLB.ProviderParameters.GCP == nil {
 						statusLB.ProviderParameters.GCP = &operatorv1.GCPLoadBalancerParameters{}
@@ -637,6 +623,44 @@ func setDefaultPublishingStrategy(ic *operatorv1.IngressController, platformStat
 	}
 
 	return false
+}
+
+// setDefaultProviderParameters mutates the given LoadBalancerStrategy by
+// defaulting its ProviderParameters field based on the defaults in the provided
+// ingress config object.
+func setDefaultProviderParameters(lbs *operatorv1.LoadBalancerStrategy, ingressConfig *configv1.Ingress) {
+	if lbs.ProviderParameters == nil {
+		lbs.ProviderParameters = &operatorv1.ProviderLoadBalancerParameters{}
+	}
+	if len(lbs.ProviderParameters.Type) == 0 {
+		// Infer the LB type from the cluster ingress config.
+		switch ingressConfig.Spec.LoadBalancer.Platform.Type {
+		case configv1.AWSPlatformType:
+			lbs.ProviderParameters.Type = operatorv1.AWSLoadBalancerProvider
+		}
+	}
+	switch lbs.ProviderParameters.Type {
+	case operatorv1.AWSLoadBalancerProvider:
+		defaultLBType := operatorv1.AWSClassicLoadBalancer
+		if p := ingressConfig.Spec.LoadBalancer.Platform; p.Type == configv1.AWSPlatformType && p.AWS != nil {
+			if p.AWS.Type == configv1.NLB {
+				defaultLBType = operatorv1.AWSNetworkLoadBalancer
+			}
+		}
+		if lbs.ProviderParameters.AWS == nil {
+			lbs.ProviderParameters.AWS = &operatorv1.AWSLoadBalancerParameters{}
+		}
+		if len(lbs.ProviderParameters.AWS.Type) == 0 {
+			lbs.ProviderParameters.AWS.Type = defaultLBType
+		}
+		switch lbs.ProviderParameters.AWS.Type {
+		case operatorv1.AWSClassicLoadBalancer:
+			if lbs.ProviderParameters.AWS.ClassicLoadBalancerParameters == nil {
+				lbs.ProviderParameters.AWS.ClassicLoadBalancerParameters = &operatorv1.AWSClassicLoadBalancerParameters{}
+			}
+		}
+	}
+
 }
 
 // tlsProfileSpecForIngressController returns a TLS profile spec based on either
