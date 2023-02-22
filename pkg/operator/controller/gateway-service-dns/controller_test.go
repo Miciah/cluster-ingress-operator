@@ -174,7 +174,7 @@ func Test_Reconcile(t *testing.T) {
 	scheme := runtime.NewScheme()
 	iov1.AddToScheme(scheme)
 	corev1.AddToScheme(scheme)
-	gatewayapiv1beta1.AddToScheme(scheme)
+	gatewayapiv1beta1.Install(scheme)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -333,6 +333,129 @@ func Test_gatewayListenersHostnamesChanged(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.expect, gatewayListenersHostnamesChanged(tc.old, tc.new))
+		})
+	}
+}
+
+func Test_servicesForGateway(t *testing.T) {
+	gw := func(name string, addresses ...gatewayapiv1beta1.GatewayAddress) *gatewayapiv1beta1.Gateway {
+		return &gatewayapiv1beta1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "openshift-ingress",
+				Name:      name,
+			},
+			Spec: gatewayapiv1beta1.GatewaySpec{
+				Addresses: addresses,
+			},
+		}
+	}
+	a := func(addressType, value string) gatewayapiv1beta1.GatewayAddress {
+		t := gatewayapiv1beta1.AddressType(addressType)
+		return gatewayapiv1beta1.GatewayAddress{
+			Type:  &t,
+			Value: value,
+		}
+	}
+	svc := func(name string, selector map[string]string) *corev1.Service {
+		return &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "openshift-ingress",
+				Name:      name,
+			},
+			Spec: corev1.ServiceSpec{
+				Selector: selector,
+			},
+		}
+	}
+	n := func(name string) types.NamespacedName {
+		return types.NamespacedName{
+			Namespace: "openshift-ingress",
+			Name:      name,
+		}
+	}
+	tests := []struct {
+		name            string
+		existingObjects []runtime.Object
+		gateway         *gatewayapiv1beta1.Gateway
+		expect          []types.NamespacedName
+	}{
+		{
+			name:            "no address, no service",
+			gateway:         gw("example"),
+			existingObjects: []runtime.Object{},
+			expect:          []types.NamespacedName{},
+		},
+		{
+			name:    "istio-ingressgateway service",
+			gateway: gw("example", a("Hostname", "istio-ingressgateway")),
+			existingObjects: []runtime.Object{
+				svc("istio-ingressgateway", map[string]string{}),
+			},
+			expect: []types.NamespacedName{n("istio-ingressgateway")},
+		},
+		{
+			name:    "gateway with no service",
+			gateway: gw("example"),
+			existingObjects: []runtime.Object{
+				svc("unrelated-gateway", map[string]string{"istio.io/gateway-name": "unrelated-gateway"}),
+			},
+			expect: []types.NamespacedName{},
+		},
+		{
+			name:    "gateway with a service",
+			gateway: gw("example-gateway"),
+			existingObjects: []runtime.Object{
+				svc("example-gateway", map[string]string{"istio.io/gateway-name": "example-gateway"}),
+			},
+			expect: []types.NamespacedName{n("example-gateway")},
+		},
+		{
+			name:    "gateway pointing at another gateway's service",
+			gateway: gw("example-gateway", a("Hostname", "other-gateway.openshift-ingress.svc.cluster.local")),
+			existingObjects: []runtime.Object{
+				svc("example-gateway", map[string]string{"istio.io/gateway-name": "other-gateway"}),
+			},
+			expect: []types.NamespacedName{n("other-gateway")},
+		},
+		{
+			name:            "gateway pointing at a bogus service in another namespace with .svc.cluster.local",
+			gateway:         gw("example-gateway", a("Hostname", "other-gateway.openshift-ingress-operator.svc.cluster.local")),
+			existingObjects: []runtime.Object{},
+			expect:          []types.NamespacedName{},
+		},
+		{
+			name:            "gateway pointing at a bogus service in another namespace without .svc.cluster.local",
+			gateway:         gw("example-gateway", a("Hostname", "other-gateway.openshift-ingress-operator")),
+			existingObjects: []runtime.Object{},
+			expect:          []types.NamespacedName{},
+		},
+		{
+			name:            "gateway pointing at a bogus service",
+			gateway:         gw("example-gateway", a("Hostname", "foo")),
+			existingObjects: []runtime.Object{},
+			expect:          []types.NamespacedName{n("foo")},
+		},
+	}
+	scheme := runtime.NewScheme()
+	corev1.AddToScheme(scheme)
+	gatewayapiv1beta1.Install(scheme)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithRuntimeObjects(tc.existingObjects...).
+				Build()
+			cl := &fakeClientRecorder{fakeClient, t, []client.Object{}, []client.Object{}}
+			informer := informertest.FakeInformers{Scheme: scheme}
+			cache := fakeCache{Informers: &informer, Reader: cl}
+			reconciler := &reconciler{
+				config: Config{
+					OperandNamespace: "openshift-ingress",
+				},
+				cache:  cache,
+				client: cl,
+			}
+			assert.Equal(t, tc.expect, reconciler.servicesForGateway(tc.gateway))
 		})
 	}
 }

@@ -3,6 +3,7 @@ package gateway_service_dns
 import (
 	"context"
 	"reflect"
+	"strings"
 
 	logf "github.com/openshift/cluster-ingress-operator/pkg/log"
 	operatorcontroller "github.com/openshift/cluster-ingress-operator/pkg/operator/controller"
@@ -76,31 +77,26 @@ func NewUnmanaged(mgr manager.Manager, config Config) (controller.Controller, er
 			return gatewayListenersHostnamesChanged(old, new)
 		},
 	}
-	isInOperandNamespace := predicate.NewPredicateFuncs(func(o client.Object) bool {
-		return o.GetNamespace() == config.OperandNamespace
-	})
 	gatewayToService := func(o client.Object) []reconcile.Request {
-		var services corev1.ServiceList
-		listOpts := []client.ListOption{
-			client.MatchingLabels{gatewayNameLabelKey: o.GetName()},
-			client.InNamespace(config.OperandNamespace),
-		}
 		requests := []reconcile.Request{}
-		if err := reconciler.cache.List(context.Background(), &services, listOpts...); err != nil {
-			log.Error(err, "failed to list services for gateway", "gateway", o.GetName())
+		name := types.NamespacedName{
+			Namespace: o.GetNamespace(),
+			Name:      o.GetName(),
+		}
+		var gateway gatewayapiv1beta1.Gateway
+		if err := reconciler.cache.Get(context.Background(), name, &gateway); err != nil {
+			log.Error(err, "failed to get gateway", "gateway", name)
 			return requests
 		}
-		for i := range services.Items {
-			request := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: services.Items[i].Namespace,
-					Name:      services.Items[i].Name,
-				},
-			}
+		for _, name := range reconciler.servicesForGateway(&gateway) {
+			request := reconcile.Request{NamespacedName: name}
 			requests = append(requests, request)
 		}
 		return requests
 	}
+	isInOperandNamespace := predicate.NewPredicateFuncs(func(o client.Object) bool {
+		return o.GetNamespace() == config.OperandNamespace
+	})
 	if err := c.Watch(&source.Kind{Type: &gatewayapiv1beta1.Gateway{}}, handler.EnqueueRequestsFromMapFunc(gatewayToService), isInOperandNamespace, gatewayListenersChanged); err != nil {
 		return nil, err
 	}
@@ -129,6 +125,53 @@ func gatewayListenersHostnamesChanged(xs, ys []gatewayapiv1beta1.Listener) bool 
 		}
 	}
 	return !reflect.DeepEqual(x, y)
+}
+
+// servicesForGateway returns a slice of types.NamespacedName, one for each
+// service that is associated with the given gateway.  A service is considered
+// to be associated with a gateway if any of the following criteria is met:
+//
+// * The gateway specifies the service in spec.addresses.
+// * The service selects the gateway's deployment.
+func (r *reconciler) servicesForGateway(gateway *gatewayapiv1beta1.Gateway) []types.NamespacedName {
+	names := []types.NamespacedName{}
+	for i := range gateway.Spec.Addresses {
+		if gateway.Spec.Addresses[i].Type == nil {
+			continue
+		}
+		if *gateway.Spec.Addresses[i].Type != gatewayapiv1beta1.HostnameAddressType {
+			continue
+		}
+		parts := strings.SplitN(gateway.Spec.Addresses[i].Value, ".", 3)
+		if len(parts) == 3 && parts[2] != "svc.cluster.local" {
+			continue
+		}
+		if len(parts) >= 2 && parts[1] != "openshift-ingress" {
+			continue
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		names = append(names, types.NamespacedName{
+			Namespace: gateway.Namespace,
+			Name:      parts[0],
+		})
+	}
+	var services corev1.ServiceList
+	if err := r.cache.List(context.Background(), &services, client.InNamespace(r.config.OperandNamespace)); err != nil {
+		log.Error(err, "failed to list services for gateway", "gateway", gateway.Name)
+		return names
+	}
+	for i := range services.Items {
+		if services.Items[i].Spec.Selector[gatewayNameLabelKey] != gateway.Name {
+			continue
+		}
+		names = append(names, types.NamespacedName{
+			Namespace: services.Items[i].Namespace,
+			Name:      services.Items[i].Name,
+		})
+	}
+	return names
 }
 
 // Config holds all the configuration that must be provided when creating the
