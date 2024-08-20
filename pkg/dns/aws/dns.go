@@ -43,8 +43,6 @@ const (
 	// govCloudRoute53Region is the AWS GovCloud region for Route 53. See:
 	// https://docs.aws.amazon.com/govcloud-us/latest/UserGuide/using-govcloud-endpoints.html
 	govCloudRoute53Region = "us-gov"
-	// govCloudTaggingEndpoint is the Group Tagging service endpoint used for AWS GovCloud.
-	govCloudTaggingEndpoint = "https://tagging.us-gov-west-1.amazonaws.com"
 	// chinaRoute53Endpoint is the Route 53 service endpoint used for AWS China regions.
 	chinaRoute53Endpoint = "https://route53.amazonaws.com.cn"
 	// targetHostedZoneIdAnnotationKey is the key of an annotation that this
@@ -181,14 +179,6 @@ func NewProvider(config Config, operatorReleaseVersion string) (*Provider, error
 	case endpoints.AwsCnPartitionID:
 		tagConfig = tagConfig.WithRegion(endpoints.CnNorthwest1RegionID)
 		r53Config = r53Config.WithRegion(endpoints.CnNorthwest1RegionID).WithEndpoint(chinaRoute53Endpoint)
-	case endpoints.AwsUsGovPartitionID:
-		// Route53 for GovCloud uses the "us-gov-west-1" region id:
-		// https://docs.aws.amazon.com/govcloud-us/latest/UserGuide/using-govcloud-endpoints.html
-		r53Config = r53Config.WithRegion(endpoints.UsGovWest1RegionID)
-		// As with other AWS partitions, the GovCloud Tagging client must be
-		// in the same region as the Route53 client to find the hosted zone
-		// of managed records.
-		tagConfig = tagConfig.WithRegion(endpoints.UsGovWest1RegionID)
 	case endpoints.AwsIsoPartitionID, endpoints.AwsIsoBPartitionID:
 		// The resourcetagging API is not available in C2S or SC2S
 		tagConfig = nil
@@ -221,11 +211,6 @@ func NewProvider(config Config, operatorReleaseVersion string) (*Provider, error
 				}
 				tagFound = true
 				url := ep.URL
-				// route53 for govcloud is based out of us-gov-west-1,
-				// so the tagging client must match.
-				if strings.Contains(ep.URL, "us-gov-east-1") {
-					url = govCloudTaggingEndpoint
-				}
 				tagConfig = tagConfig.WithEndpoint(url)
 				log.Info("using group tagging custom endpoint", "url", url)
 			case ep.Name == ELBService:
