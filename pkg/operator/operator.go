@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -53,6 +54,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -151,7 +153,14 @@ func New(config operatorconfig.Config, kubeConfig *rest.Config) (*Operator, erro
 			},
 		},
 		Metrics: metricsserver.Options{
-			BindAddress: config.MetricsListenAddr,
+			SecureServing:  true,
+			BindAddress:    config.MetricsListenAddr,
+			FilterProvider: filters.WithAuthenticationAndAuthorization,
+			CertDir:        "/etc/tls/private/",
+			TLSOpts: []func(*tls.Config){func(c *tls.Config) {
+				// Mitigate rapid-reset.
+				c.NextProtos = []string{"http/1.1"}
+			}},
 		},
 		// Use a non-caching client everywhere. The default split client does not
 		// promise to invalidate the cache during writes (nor does it promise
