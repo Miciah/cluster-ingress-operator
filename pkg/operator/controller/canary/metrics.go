@@ -2,6 +2,7 @@ package canary
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 var (
@@ -51,11 +52,11 @@ func SetCanaryRouteReachableMetric(host string, status bool) {
 	}
 }
 
-// RegisterMetrics calls prometheus.Register on each metric in metricsList, and
-// returns on errors.
+// RegisterMetrics calls metrics.Registry.Register on each metric in
+// metricsList, and returns on errors.
 func RegisterMetrics() error {
 	for _, metric := range metricsList {
-		err := prometheus.Register(metric)
+		err := metrics.Registry.Register(metric)
 		if err != nil {
 			return err
 		}

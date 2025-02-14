@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var (
@@ -148,6 +149,9 @@ func New(config operatorconfig.Config, kubeConfig *rest.Config) (*Operator, erro
 				operatorcontroller.DefaultCanaryNamespace:                {},
 				operatorcontroller.GlobalMachineSpecifiedConfigNamespace: {},
 			},
+		},
+		Metrics: metricsserver.Options{
+			BindAddress: config.MetricsListenAddr,
 		},
 		// Use a non-caching client everywhere. The default split client does not
 		// promise to invalidate the cache during writes (nor does it promise

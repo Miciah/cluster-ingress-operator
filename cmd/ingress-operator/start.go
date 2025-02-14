@@ -122,10 +122,10 @@ func start(opts *StartOptions) error {
 		Namespace:              opts.OperatorNamespace,
 		IngressControllerImage: opts.IngressControllerImage,
 		CanaryImage:            opts.CanaryImage,
+		MetricsListenAddr:      opts.MetricsListenAddr,
 	}
 
 	// Start operator metrics.
-	go operator.StartMetricsListener(opts.MetricsListenAddr, signal)
 	log.Info("registering Prometheus metrics for canary_controller")
 	if err := canarycontroller.RegisterMetrics(); err != nil {
 		log.Error(err, "unable to register metrics for canary_controller")

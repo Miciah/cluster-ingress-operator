@@ -15,5 +15,9 @@ type Config struct {
 	// CanaryImage is the ingress operator image, which runs a canary command.
 	CanaryImage string
 
+	// MetricsListenAddr is the IP address and port number for the operator
+	// metrics.
+	MetricsListenAddr string
+
 	Stop chan struct{}
 }
