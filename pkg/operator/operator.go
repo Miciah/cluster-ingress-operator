@@ -8,6 +8,7 @@ import (
 
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
+	"github.com/openshift/library-go/pkg/crypto"
 	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
 
@@ -140,6 +141,50 @@ func New(config operatorconfig.Config, kubeConfig *rest.Config) (*Operator, erro
 	ingressControllerEIPAllocationsAWSEnabled := featureGates.Enabled(features.FeatureGateSetEIPForNLBIngressController)
 	ingressControllerDCMEnabled := featureGates.Enabled(features.FeatureGateIngressControllerDynamicConfigurationManager)
 
+	apiServerLister := configInformers.Config().V1().APIServers().Lister()
+
+	// TODO Refactor.
+	apiServer, err := apiServerLister.Get("cluster")
+	if errors.IsNotFound(err) {
+		log.Error(err, "failed to get apiserver 'cluster'")
+		apiServer = &configv1.APIServer{}
+	} else if err != nil {
+		return nil, err
+	}
+
+	profile := apiServer.Spec.TLSSecurityProfile
+
+	profileType := configv1.TLSProfileIntermediateType
+	if profile != nil {
+		profileType = profile.Type
+	}
+
+	profileSpec := configv1.TLSProfiles[profileType]
+	if profileType == configv1.TLSProfileCustomType && profile.Custom != nil {
+		profileSpec = &profile.Custom.TLSProfileSpec
+	}
+
+	if profileSpec == nil {
+		profileSpec = configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+	}
+
+	minTLSVersion, err := crypto.TLSVersion(string(profileSpec.MinTLSVersion))
+	if err != nil {
+		return nil, err
+	}
+
+	cipherSuites, err := func() (result []uint16, err error) {
+		defer func() {
+			recoveredErr := recover()
+			err = fmt.Errorf("%v", recoveredErr)
+		}()
+		result = crypto.CipherSuitesOrDie(profileSpec.Ciphers)
+
+		return
+	}()
+
+	// TODO Add logic to reload if the TLS security profile changes.
+
 	// Set up an operator manager for the operator namespace.
 	mgr, err := manager.New(kubeConfig, manager.Options{
 		Scheme: scheme,
@@ -160,6 +205,8 @@ func New(config operatorconfig.Config, kubeConfig *rest.Config) (*Operator, erro
 			TLSOpts: []func(*tls.Config){func(c *tls.Config) {
 				// Mitigate rapid-reset.
 				c.NextProtos = []string{"http/1.1"}
+				c.MinVersion = minTLSVersion
+				c.CipherSuites = cipherSuites
 			}},
 		},
 		// Use a non-caching client everywhere. The default split client does not
